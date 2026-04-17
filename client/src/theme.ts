@@ -1,0 +1,62 @@
+export const theme = {
+  colors: {
+    bgPrimary: '#0a0a12',
+    bgSecondary: '#12121e',
+    bgCard: 'rgba(255,255,255,0.04)',
+    bgGlass: 'rgba(255,255,255,0.06)',
+    bgGlassHover: 'rgba(255,255,255,0.10)',
+    accentOrange: '#FF6B35',
+    accentTeal: '#4ECDC4',
+    accentGreen: '#2ECC71',
+    accentRose: '#ef5350',
+    accentBlue: '#3B82F6',
+    accentPurple: '#8B5CF6',
+    textPrimary: '#FFFFFF',
+    textSecondary: 'rgba(255,255,255,0.7)',
+    textMuted: 'rgba(255,255,255,0.4)',
+    border: 'rgba(255,255,255,0.08)',
+    borderLight: 'rgba(255,255,255,0.12)',
+    success: '#2ECC71',
+    warning: '#F59E0B',
+    error: '#ef5350',
+  },
+  fonts: {
+    regular: 'System',
+    medium: 'System',
+    bold: 'System',
+    mono: 'monospace',
+  },
+  spacing: {
+    xs: 4,
+    sm: 8,
+    md: 16,
+    lg: 24,
+    xl: 32,
+    xxl: 48,
+  },
+  borderRadius: {
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 24,
+    full: 999,
+  },
+  shadows: {
+    card: {
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 6,
+    },
+    glow: {
+      shadowColor: '#FF6B35',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.3,
+      shadowRadius: 16,
+      elevation: 8,
+    },
+  },
+};
+
+export type Theme = typeof theme;

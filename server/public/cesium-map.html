@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>SolarRes Map</title>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; font-family: 'Segoe UI', system-ui, sans-serif; }
+  
+  .search-box {
+    position: absolute; top: 12px; left: 12px; right: 380px; z-index: 1000;
+    display: flex; gap: 8px;
+  }
+  .search-box input {
+    flex: 1; padding: 12px 16px; border-radius: 12px;
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 14px;
+    outline: none;
+  }
+  .search-box input::placeholder { color: rgba(255,255,255,0.4); }
+  .suggestions {
+    position: absolute; top: 52px; left: 0; right: 0;
+    background: rgba(10,10,18,0.95); backdrop-filter: blur(16px);
+    border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+    max-height: 240px; overflow-y: auto; display: none;
+  }
+  .suggestions.active { display: block; }
+  .suggestion-item {
+    padding: 12px 16px; color: rgba(255,255,255,0.8); font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer;
+  }
+  .suggestion-item:hover { background: rgba(255,107,53,0.15); }
+
+  /* Solar Info Panel */
+  .solar-panel {
+    position: absolute; top: 12px; right: 12px; z-index: 1000;
+    width: 340px; border-radius: 14px;
+    background: rgba(10,10,18,0.92); backdrop-filter: blur(20px);
+    border: 1px solid rgba(255,255,255,0.08); color: #fff;
+    overflow: hidden;
+  }
+  .panel-section {
+    padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.06);
+    cursor: pointer; transition: background 0.2s;
+  }
+  .panel-section:hover { background: rgba(255,255,255,0.03); }
+  .panel-section-title {
+    font-size: 11px; font-weight: 700; letter-spacing: 1.2px;
+    color: rgba(255,255,255,0.5); text-transform: uppercase;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .panel-section-title::after { content: '›'; font-size: 16px; color: rgba(255,255,255,0.3); }
+  .panel-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 4px 0;
+  }
+  .panel-label { font-size: 12px; color: rgba(255,255,255,0.55); }
+  .panel-value { font-size: 13px; font-weight: 600; color: #fff; font-variant-numeric: tabular-nums; }
+  .panel-value.highlight { color: #FF6B35; }
+
+  /* Time Controls */
+  .time-controls {
+    position: absolute; bottom: 0; left: 0; right: 0; z-index: 1000;
+    background: rgba(10,10,18,0.92); backdrop-filter: blur(20px);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 12px 20px;
+  }
+  .time-row { display: flex; align-items: center; gap: 12px; }
+  .time-slider {
+    flex: 1; -webkit-appearance: none; height: 6px; border-radius: 3px;
+    background: linear-gradient(90deg, #1a1a3e 0%, #FF6B35 50%, #1a1a3e 100%);
+    outline: none;
+  }
+  .time-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%;
+    background: #FF6B35; border: 2px solid #fff; cursor: pointer;
+    box-shadow: 0 0 10px rgba(255,107,53,0.5);
+  }
+  .time-display {
+    font-size: 20px; font-weight: 700; color: #fff; min-width: 60px;
+    text-align: center; font-variant-numeric: tabular-nums;
+  }
+  .date-display { font-size: 12px; color: rgba(255,255,255,0.5); min-width: 90px; text-align: center; }
+  .ctrl-btn {
+    width: 36px; height: 36px; border-radius: 50%; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05); color: #fff; font-size: 16px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    transition: all 0.2s;
+  }
+  .ctrl-btn:hover { background: rgba(255,107,53,0.2); border-color: #FF6B35; }
+  .ctrl-btn.active { background: #FF6B35; border-color: #FF6B35; }
+  .date-input {
+    padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05); color: #fff; font-size: 12px; outline: none;
+  }
+
+  /* Sun Path Polar Diagram */
+  .polar-chart {
+    position: absolute; bottom: 80px; left: 12px; z-index: 1000;
+    width: 220px; height: 220px; border-radius: 50%;
+    background: rgba(10,10,18,0.88); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1);
+  }
+
+  /* Day Length Chart */
+  .daylength-chart {
+    position: absolute; bottom: 80px; left: 244px; z-index: 1000;
+    width: 280px; height: 220px; border-radius: 14px;
+    background: rgba(10,10,18,0.88); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.08); padding: 10px;
+  }
+  .daylength-chart .chart-title {
+    font-size: 10px; font-weight: 700; color: rgba(255,255,255,0.4);
+    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px;
+  }
+
+  /* Toolbar */
+  .toolbar {
+    position: absolute; top: 60px; left: 12px; z-index: 1000;
+    display: flex; gap: 6px; flex-wrap: wrap; max-width: 360px;
+  }
+  .toolbar button {
+    padding: 8px 14px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    color: #fff; font-size: 12px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toolbar button:hover { background: rgba(255,107,53,0.2); border-color: #FF6B35; }
+  .toolbar button.active { background: #FF6B35; border-color: #FF6B35; }
+
+  .area-badge {
+    position: absolute; top: 100px; left: 12px; z-index: 1000;
+    padding: 10px 16px; border-radius: 10px;
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    border: 1px solid rgba(78,205,196,0.3); color: #4ECDC4;
+    font-size: 14px; font-weight: 600; display: none;
+  }
+</style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+
+<div class="search-box">
+  <input id="searchInput" type="text" placeholder="🔍 Search location in India..." />
+  <div class="suggestions" id="suggestions"></div>
+</div>
+<div class="area-badge" id="areaBadge"></div>
+
+<!-- Solar Info Panel -->
+<div class="solar-panel" id="solarPanel">
+  <div class="panel-section" id="geoSection">
+    <div class="panel-section-title">Geographic Location</div>
+    <div class="panel-row"><span class="panel-label">Latitude</span><span class="panel-value" id="infoLat">20.5937°</span></div>
+    <div class="panel-row"><span class="panel-label">Longitude</span><span class="panel-value" id="infoLng">78.9629°</span></div>
+    <div class="panel-row"><span class="panel-label">Location</span><span class="panel-value" id="infoLocation" style="font-size:11px;max-width:200px;text-align:right">India</span></div>
+  </div>
+  <div class="panel-section">
+    <div class="panel-section-title">Date and Time</div>
+    <div class="panel-row"><span class="panel-label">Date</span><span class="panel-value" id="infoDate">-</span></div>
+    <div class="panel-row"><span class="panel-label">Time (IST)</span><span class="panel-value highlight" id="infoTime">-</span></div>
+  </div>
+  <div class="panel-section">
+    <div class="panel-section-title">Solar Information</div>
+    <div class="panel-row"><span class="panel-label">Azi / Alt</span><span class="panel-value highlight" id="infoAziAlt">-</span></div>
+    <div class="panel-row"><span class="panel-label">Rise / Set</span><span class="panel-value" id="infoRiseSet">-</span></div>
+    <div class="panel-row"><span class="panel-label">Daylight</span><span class="panel-value" id="infoDaylight">-</span></div>
+    <div class="panel-row"><span class="panel-label">Solar Noon</span><span class="panel-value" id="infoNoon">-</span></div>
+  </div>
+  <div class="panel-section">
+    <div class="panel-section-title">Twilight Times</div>
+    <div class="panel-row"><span class="panel-label">Civil</span><span class="panel-value" id="infoCivil">-</span></div>
+    <div class="panel-row"><span class="panel-label">Nautical</span><span class="panel-value" id="infoNautical">-</span></div>
+  </div>
+</div>
+
+<!-- Sun Path Polar Diagram -->
+<canvas class="polar-chart" id="polarChart" width="440" height="440"></canvas>
+
+<!-- Day Length Chart -->
+<div class="daylength-chart" id="daylengthChart">
+  <div class="chart-title">Day Length</div>
+  <canvas id="daylengthCanvas" width="520" height="380"></canvas>
+</div>
+
+<!-- Toolbar -->
+<div class="toolbar" id="toolbar">
+  <button id="btnDraw" onclick="startDrawing()">✏️ Draw Roof</button>
+  <button id="btnFinish" onclick="finishDrawing()" style="display:none">✅ Finish</button>
+  <button id="btnReset" onclick="resetDrawing()">🗑️ Reset</button>
+  <button id="btnSunPath" onclick="toggleSunPath()">☀️ Sun Path</button>
+  <button id="btnShadows" onclick="toggleShadows()">🌓 Shadows</button>
+  <button id="btnBuildings" onclick="toggleBuildings()">🏠 Buildings</button>
+</div>
+
+<!-- Time Controls -->
+<div class="time-controls" id="timeControls">
+  <div class="time-row">
+    <input type="date" class="date-input" id="dateInput" />
+    <button class="ctrl-btn" id="btnPlay" onclick="togglePlay()">▶</button>
+    <span class="time-display" id="timeDisplay">12:00</span>
+    <input type="range" class="time-slider" id="timeSlider" min="0" max="1440" value="720" />
+    <span class="date-display" id="dateLabel">-</span>
+  </div>
+</div>
+
+<script>
+// ── Globals ────────────────────────────────────────────
+window.CESIUM_BASE_URL = 'https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/';
+Cesium.Ion.defaultAccessToken = null;
+
+let viewer, drawing = false, positions = [], polyline, polygon;
+let entities = [], obstacles = [], solarPanels = [];
+let sunPathEntities = [], sunMarker = null;
+let currentLat = 20.5937, currentLng = 78.9629;
+let playing = false, playInterval = null;
+let sunPathVisible = false, shadowsEnabled = false, buildingsLoaded = false;
+
+// ── Solar Position Algorithm (simplified NOAA) ─────────
+function solarPosition(lat, lng, date) {
+  const jd = julianDay(date);
+  const jc = (jd - 2451545.0) / 36525.0;
+  
+  // Geometric mean longitude & anomaly
+  let L0 = (280.46646 + jc * (36000.76983 + 0.0003032 * jc)) % 360;
+  let M = (357.52911 + jc * (35999.05029 - 0.0001537 * jc)) % 360;
+  const Mrad = M * Math.PI / 180;
+  
+  // Equation of center
+  const C = (1.914602 - jc * (0.004817 + 0.000014 * jc)) * Math.sin(Mrad)
+    + (0.019993 - 0.000101 * jc) * Math.sin(2 * Mrad)
+    + 0.000289 * Math.sin(3 * Mrad);
+  
+  const sunLng = L0 + C;
+  const sunAnomaly = M + C;
+  
+  // Sun's apparent longitude
+  const omega = 125.04 - 1934.136 * jc;
+  const lambda = sunLng - 0.00569 - 0.00478 * Math.sin(omega * Math.PI / 180);
+  const lambdaRad = lambda * Math.PI / 180;
+  
+  // Obliquity
+  const obliquity = 23.439291 - 0.0130042 * jc + 0.00000164 * jc * jc;
+  const oblCorr = obliquity + 0.00256 * Math.cos(omega * Math.PI / 180);
+  const oblRad = oblCorr * Math.PI / 180;
+  
+  // Declination
+  const sinDec = Math.sin(oblRad) * Math.sin(lambdaRad);
+  const dec = Math.asin(sinDec);
+  
+  // Equation of time (minutes)
+  const y = Math.tan(oblRad / 2) * Math.tan(oblRad / 2);
+  const L0rad = L0 * Math.PI / 180;
+  const eot = 4 * (y * Math.sin(2 * L0rad) - 2 * 0.016709 * Math.sin(Mrad)
+    + 4 * 0.016709 * y * Math.sin(Mrad) * Math.cos(2 * L0rad)
+    - 0.5 * y * y * Math.sin(4 * L0rad)
+    - 1.25 * 0.016709 * 0.016709 * Math.sin(2 * Mrad)) * 180 / Math.PI;
+  
+  // Hour angle
+  const hours = date.getUTCHours() + date.getUTCMinutes() / 60 + date.getUTCSeconds() / 3600;
+  const solarTime = hours * 60 + eot + 4 * lng; // in minutes
+  let ha = (solarTime / 4) - 180; // hour angle in degrees
+  const haRad = ha * Math.PI / 180;
+  const latRad = lat * Math.PI / 180;
+  
+  // Altitude
+  const sinAlt = Math.sin(latRad) * Math.sin(dec) + Math.cos(latRad) * Math.cos(dec) * Math.cos(haRad);
+  const altitude = Math.asin(sinAlt) * 180 / Math.PI;
+  
+  // Azimuth
+  let azimuth = Math.acos((Math.sin(dec) - Math.sin(latRad) * sinAlt) / (Math.cos(latRad) * Math.cos(Math.asin(sinAlt)))) * 180 / Math.PI;
+  if (ha > 0) azimuth = 360 - azimuth;
+  
+  return { azimuth, altitude, declination: dec * 180 / Math.PI, eot, solarTime };
+}
+
+function julianDay(date) {
+  let y = date.getUTCFullYear(), m = date.getUTCMonth() + 1, d = date.getUTCDate();
+  const h = date.getUTCHours() / 24 + date.getUTCMinutes() / 1440 + date.getUTCSeconds() / 86400;
+  if (m <= 2) { y--; m += 12; }
+  const A = Math.floor(y / 100), B = 2 - A + Math.floor(A / 4);
+  return Math.floor(365.25 * (y + 4716)) + Math.floor(30.6001 * (m + 1)) + d + h + B - 1524.5;
+}
+
+function sunriseSet(lat, lng, date, zenith) {
+  zenith = zenith || 90.833;
+  const jd = julianDay(new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0));
+  const jc = (jd - 2451545.0) / 36525.0;
+  
+  let L0 = (280.46646 + jc * 36000.76983) % 360;
+  let M = (357.52911 + jc * 35999.05029) % 360;
+  const Mrad = M * Math.PI / 180;
+  const C = 1.914602 * Math.sin(Mrad) + 0.019993 * Math.sin(2 * Mrad);
+  const sunLng = L0 + C;
+  const omega = 125.04 - 1934.136 * jc;
+  const lambda = sunLng - 0.00569 - 0.00478 * Math.sin(omega * Math.PI / 180);
+  const obliquity = 23.439291 - 0.0130042 * jc;
+  const oblCorr = obliquity + 0.00256 * Math.cos(omega * Math.PI / 180);
+  const dec = Math.asin(Math.sin(oblCorr * Math.PI / 180) * Math.sin(lambda * Math.PI / 180));
+  
+  const y = Math.tan(oblCorr * Math.PI / 360) * Math.tan(oblCorr * Math.PI / 360);
+  const L0rad = L0 * Math.PI / 180;
+  const eot = 4 * (y * Math.sin(2 * L0rad) - 2 * 0.016709 * Math.sin(Mrad)
+    + 4 * 0.016709 * y * Math.sin(Mrad) * Math.cos(2 * L0rad)) * 180 / Math.PI;
+  
+  const latRad = lat * Math.PI / 180;
+  const cosHA = (Math.cos(zenith * Math.PI / 180) - Math.sin(latRad) * Math.sin(dec)) / (Math.cos(latRad) * Math.cos(dec));
+  
+  if (cosHA > 1 || cosHA < -1) return null;
+  
+  const HA = Math.acos(cosHA) * 180 / Math.PI;
+  const noon = 720 - 4 * lng - eot; // UTC minutes
+  const rise = noon - HA * 4;
+  const set = noon + HA * 4;
+  
+  return { riseUTC: rise, setUTC: set, noonUTC: noon };
+}
+
+function formatMinutes(m) {
+  // Convert UTC minutes to IST (+5:30)
+  m += 330;
+  if (m < 0) m += 1440;
+  if (m >= 1440) m -= 1440;
+  const h = Math.floor(m / 60), min = Math.floor(m % 60);
+  return `${h.toString().padStart(2,'0')}:${min.toString().padStart(2,'0')}`;
+}
+
+// ── Init Viewer ────────────────────────────────────────
+function initViewer() {
+  viewer = new Cesium.Viewer('cesiumContainer', {
+    imageryProvider: false,
+    baseLayerPicker: false, geocoder: false, homeButton: false,
+    timeline: false, animation: false, navigationHelpButton: false,
+    sceneModePicker: false, fullscreenButton: false,
+    shadows: false,
+  });
+
+  const layers = viewer.scene.imageryLayers;
+  const esri = new Cesium.UrlTemplateImageryProvider({
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    credit: 'ESRI', maximumLevel: 19,
+  });
+  const osm = new Cesium.OpenStreetMapImageryProvider({ url: 'https://tile.openstreetmap.org/' });
+  
+  const esriLayer = layers.addImageryProvider(esri);
+  esriLayer.imageryProvider.errorEvent.addEventListener(() => {
+    layers.remove(esriLayer);
+    layers.addImageryProvider(osm);
+  });
+
+  viewer.scene.globe.enableLighting = true;
+  viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 5000000), duration: 2 });
+
+  // Set initial date
+  const now = new Date();
+  document.getElementById('dateInput').value = now.toISOString().split('T')[0];
+  document.getElementById('timeSlider').value = now.getHours() * 60 + now.getMinutes();
+  
+  updateSolarInfo();
+}
+
+// ── Sun Path Visualization ─────────────────────────────
+function drawSunPath() {
+  clearSunPath();
+  if (!sunPathVisible) return;
+  
+  const date = getSelectedDate();
+  const pathPositions = [];
+  const hourMarkers = [];
+  
+  // Calculate sun path for every 10 minutes
+  for (let m = 0; m <= 1440; m += 10) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, m);
+    const sp = solarPosition(currentLat, currentLng, d);
+    if (sp.altitude > -5) {
+      // Project onto a dome above the location
+      const dist = 500 * Math.cos(sp.altitude * Math.PI / 180);
+      const height = 500 * Math.sin(sp.altitude * Math.PI / 180);
+      const dx = dist * Math.sin(sp.azimuth * Math.PI / 180) / 111320;
+      const dy = dist * Math.cos(sp.azimuth * Math.PI / 180) / 111320;
+      const pos = Cesium.Cartesian3.fromDegrees(currentLng + dx / Math.cos(currentLat * Math.PI / 180), currentLat + dy, height + 5);
+      pathPositions.push(pos);
+      
+      if (m % 60 === 0 && sp.altitude > 0) {
+        hourMarkers.push({ pos, hour: Math.floor(m / 60), alt: sp.altitude, azi: sp.azimuth });
+      }
+    }
+  }
+  
+  // Draw sun path arc
+  if (pathPositions.length > 2) {
+    sunPathEntities.push(viewer.entities.add({
+      polyline: {
+        positions: pathPositions,
+        width: 3,
+        material: new Cesium.PolylineGlowMaterialProperty({
+          glowPower: 0.3, color: Cesium.Color.fromCssColorString('#FFD700').withAlpha(0.8)
+        }),
+      }
+    }));
+  }
+  
+  // Draw hour markers
+  hourMarkers.forEach(m => {
+    sunPathEntities.push(viewer.entities.add({
+      position: m.pos,
+      point: { pixelSize: 8, color: Cesium.Color.fromCssColorString('#FFD700'), outlineColor: Cesium.Color.BLACK, outlineWidth: 1 },
+      label: {
+        text: `${m.hour}h`,
+        font: '11px sans-serif', fillColor: Cesium.Color.WHITE,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        outlineWidth: 2, outlineColor: Cesium.Color.BLACK,
+        verticalOrigin: Cesium.VerticalOrigin.BOTTOM, pixelOffset: new Cesium.Cartesian2(0, -12),
+      }
+    }));
+  });
+  
+  // Draw current sun position
+  updateSunMarker();
+  viewer.scene.requestRender();
+}
+
+function updateSunMarker() {
+  if (sunMarker) { viewer.entities.remove(sunMarker); sunMarker = null; }
+  if (!sunPathVisible) return;
+  
+  const slider = document.getElementById('timeSlider');
+  const mins = parseInt(slider.value);
+  const date = getSelectedDate();
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0);
+  // Convert IST slider to UTC
+  d.setMinutes(mins - 330);
+  
+  const sp = solarPosition(currentLat, currentLng, d);
+  if (sp.altitude > -5) {
+    const dist = 500 * Math.cos(sp.altitude * Math.PI / 180);
+    const height = 500 * Math.sin(sp.altitude * Math.PI / 180);
+    const dx = dist * Math.sin(sp.azimuth * Math.PI / 180) / 111320;
+    const dy = dist * Math.cos(sp.azimuth * Math.PI / 180) / 111320;
+    const pos = Cesium.Cartesian3.fromDegrees(
+      currentLng + dx / Math.cos(currentLat * Math.PI / 180),
+      currentLat + dy, height + 5
+    );
+    
+    sunMarker = viewer.entities.add({
+      position: pos,
+      point: { pixelSize: 20, color: Cesium.Color.YELLOW, outlineColor: Cesium.Color.fromCssColorString('#FF6B35'), outlineWidth: 3 },
+      label: {
+        text: '☀',
+        font: '28px sans-serif',
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      }
+    });
+  }
+  viewer.scene.requestRender();
+}
+
+function clearSunPath() {
+  sunPathEntities.forEach(e => viewer.entities.remove(e));
+  sunPathEntities = [];
+  if (sunMarker) { viewer.entities.remove(sunMarker); sunMarker = null; }
+}
+
+// ── Solar Info Update ──────────────────────────────────
+function updateSolarInfo() {
+  const slider = document.getElementById('timeSlider');
+  const mins = parseInt(slider.value);
+  const h = Math.floor(mins / 60), m = mins % 60;
+  
+  document.getElementById('timeDisplay').textContent = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}`;
+  
+  const date = getSelectedDate();
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  document.getElementById('dateLabel').textContent = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  document.getElementById('infoDate').textContent = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+  document.getElementById('infoTime').textContent = `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')} IST`;
+  
+  // Calculate sun position (convert IST to UTC)
+  const utcDate = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, mins - 330);
+  const sp = solarPosition(currentLat, currentLng, utcDate);
+  
+  document.getElementById('infoAziAlt').textContent = `${sp.azimuth.toFixed(2)}° / ${sp.altitude.toFixed(2)}°`;
+  document.getElementById('infoLat').textContent = `${currentLat.toFixed(4)}°`;
+  document.getElementById('infoLng').textContent = `${currentLng.toFixed(4)}°`;
+  
+  // Sunrise/Sunset
+  const ss = sunriseSet(currentLat, currentLng, date);
+  if (ss) {
+    document.getElementById('infoRiseSet').textContent = `${formatMinutes(ss.riseUTC)} / ${formatMinutes(ss.setUTC)}`;
+    const daylight = (ss.setUTC - ss.riseUTC) / 60;
+    const dh = Math.floor(daylight), dm = Math.round((daylight - dh) * 60);
+    document.getElementById('infoDaylight').textContent = `${dh}:${dm.toString().padStart(2,'0')} Hrs`;
+    document.getElementById('infoNoon').textContent = formatMinutes(ss.noonUTC);
+  }
+  
+  // Twilight
+  const civil = sunriseSet(currentLat, currentLng, date, 96);
+  if (civil) {
+    document.getElementById('infoCivil').textContent = `${formatMinutes(civil.riseUTC)} / ${formatMinutes(civil.setUTC)}`;
+  }
+  const nautical = sunriseSet(currentLat, currentLng, date, 102);
+  if (nautical) {
+    document.getElementById('infoNautical').textContent = `${formatMinutes(nautical.riseUTC)} / ${formatMinutes(nautical.setUTC)}`;
+  }
+  
+  // Update CesiumJS sun time for shadows
+  if (shadowsEnabled) {
+    const cesiumDate = Cesium.JulianDate.fromDate(utcDate);
+    viewer.clock.currentTime = cesiumDate;
+    viewer.scene.requestRender();
+  }
+  
+  // Update overlays
+  drawPolarChart();
+  if (sunPathVisible) updateSunMarker();
+}
+
+// ── Polar Sun Path Chart ───────────────────────────────
+function drawPolarChart() {
+  const canvas = document.getElementById('polarChart');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  const cx = w / 2, cy = h / 2, r = w / 2 - 20;
+  
+  ctx.clearRect(0, 0, w, h);
+  
+  // Background
+  ctx.fillStyle = 'rgba(10,10,18,0.01)';
+  ctx.beginPath(); ctx.arc(cx, cy, r + 15, 0, Math.PI * 2); ctx.fill();
+  
+  // Altitude rings
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)';
+  ctx.lineWidth = 0.5;
+  for (let alt = 0; alt <= 90; alt += 15) {
+    const ringR = r * (1 - alt / 90);
+    ctx.beginPath(); ctx.arc(cx, cy, ringR, 0, Math.PI * 2); ctx.stroke();
+    if (alt > 0) {
+      ctx.fillStyle = 'rgba(255,255,255,0.25)';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(`${alt}°`, cx + 3, cy - ringR + 12);
+    }
+  }
+  
+  // Cardinal directions
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  for (let a = 0; a < 360; a += 45) {
+    const rad = (a - 90) * Math.PI / 180;
+    ctx.beginPath(); ctx.moveTo(cx, cy);
+    ctx.lineTo(cx + r * Math.cos(rad), cy + r * Math.sin(rad));
+    ctx.stroke();
+  }
+  
+  const dirs = [{a: 0, l: 'N'}, {a: 90, l: 'E'}, {a: 180, l: 'S'}, {a: 270, l: 'W'}];
+  ctx.fillStyle = 'rgba(255,255,255,0.6)';
+  ctx.font = 'bold 12px sans-serif';
+  ctx.textAlign = 'center';
+  dirs.forEach(d => {
+    const rad = (d.a - 90) * Math.PI / 180;
+    ctx.fillText(d.l, cx + (r + 12) * Math.cos(rad), cy + (r + 12) * Math.sin(rad) + 4);
+  });
+  
+  // Draw sun path for current date
+  const date = getSelectedDate();
+  ctx.strokeStyle = '#FFD700';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  let started = false;
+  
+  for (let m = 0; m <= 1440; m += 5) {
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, m - 330);
+    const sp = solarPosition(currentLat, currentLng, d);
+    if (sp.altitude > 0) {
+      const pr = r * (1 - sp.altitude / 90);
+      const pa = (sp.azimuth - 90) * Math.PI / 180;
+      const px = cx + pr * Math.cos(pa);
+      const py = cy + pr * Math.sin(pa);
+      if (!started) { ctx.moveTo(px, py); started = true; }
+      else ctx.lineTo(px, py);
+    }
+  }
+  ctx.stroke();
+  
+  // Hour dots on path
+  ctx.fillStyle = '#FFD700';
+  for (let hr = 5; hr <= 20; hr++) {
+    const m = hr * 60;
+    const d = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, m - 330);
+    const sp = solarPosition(currentLat, currentLng, d);
+    if (sp.altitude > 0) {
+      const pr = r * (1 - sp.altitude / 90);
+      const pa = (sp.azimuth - 90) * Math.PI / 180;
+      ctx.beginPath();
+      ctx.arc(cx + pr * Math.cos(pa), cy + pr * Math.sin(pa), 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = '9px sans-serif';
+      ctx.fillText(`${hr}`, cx + pr * Math.cos(pa) + 8, cy + pr * Math.sin(pa) - 6);
+      ctx.fillStyle = '#FFD700';
+    }
+  }
+  
+  // Current sun position
+  const slider = document.getElementById('timeSlider');
+  const mins = parseInt(slider.value);
+  const now = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, mins - 330);
+  const sunNow = solarPosition(currentLat, currentLng, now);
+  if (sunNow.altitude > 0) {
+    const pr = r * (1 - sunNow.altitude / 90);
+    const pa = (sunNow.azimuth - 90) * Math.PI / 180;
+    ctx.fillStyle = '#FF6B35';
+    ctx.beginPath();
+    ctx.arc(cx + pr * Math.cos(pa), cy + pr * Math.sin(pa), 8, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+}
+
+// ── Day Length Chart ───────────────────────────────────
+function drawDayLengthChart() {
+  const canvas = document.getElementById('daylengthCanvas');
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  
+  const margin = { top: 10, right: 10, bottom: 25, left: 30 };
+  const pw = w - margin.left - margin.right;
+  const ph = h - margin.top - margin.bottom;
+  
+  // Collect data for each day of year
+  const year = getSelectedDate().getFullYear();
+  const riseData = [], setData = [], currentDOY = getDOY(getSelectedDate());
+  
+  for (let doy = 1; doy <= 365; doy += 3) {
+    const d = new Date(year, 0, doy);
+    const ss = sunriseSet(currentLat, currentLng, d);
+    if (ss) {
+      riseData.push({ doy, val: (ss.riseUTC + 330) / 60 }); // IST hours
+      setData.push({ doy, val: (ss.setUTC + 330) / 60 });
+    }
+  }
+  
+  // Draw night background
+  ctx.fillStyle = 'rgba(20,20,60,0.6)';
+  ctx.fillRect(margin.left, margin.top, pw, ph);
+  
+  // Draw daylight area
+  ctx.fillStyle = 'rgba(135,206,250,0.25)';
+  ctx.beginPath();
+  riseData.forEach((p, i) => {
+    const x = margin.left + (p.doy / 365) * pw;
+    const y = margin.top + (p.val / 24) * ph;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  for (let i = setData.length - 1; i >= 0; i--) {
+    const x = margin.left + (setData[i].doy / 365) * pw;
+    const y = margin.top + (setData[i].val / 24) * ph;
+    ctx.lineTo(x, y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  
+  // Draw sunrise line
+  ctx.strokeStyle = '#FF6B35';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  riseData.forEach((p, i) => {
+    const x = margin.left + (p.doy / 365) * pw;
+    const y = margin.top + (p.val / 24) * ph;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  
+  // Draw sunset line
+  ctx.strokeStyle = '#4ECDC4';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  setData.forEach((p, i) => {
+    const x = margin.left + (setData[i].doy / 365) * pw;
+    const y = margin.top + (setData[i].val / 24) * ph;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+  
+  // Current day marker
+  ctx.strokeStyle = 'rgba(255,107,53,0.6)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([4, 4]);
+  const cx = margin.left + (currentDOY / 365) * pw;
+  ctx.beginPath(); ctx.moveTo(cx, margin.top); ctx.lineTo(cx, margin.top + ph); ctx.stroke();
+  ctx.setLineDash([]);
+  
+  // Current time marker
+  const slider = document.getElementById('timeSlider');
+  const currentHour = parseInt(slider.value) / 60;
+  ctx.fillStyle = '#FF6B35';
+  ctx.beginPath();
+  ctx.arc(cx, margin.top + (currentHour / 24) * ph, 5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+  
+  // Y-axis (hours)
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = '9px sans-serif';
+  ctx.textAlign = 'right';
+  for (let hr = 0; hr <= 24; hr += 4) {
+    const y = margin.top + (hr / 24) * ph;
+    ctx.fillText(`${hr.toString().padStart(2,'0')}`, margin.left - 4, y + 3);
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.beginPath(); ctx.moveTo(margin.left, y); ctx.lineTo(margin.left + pw, y); ctx.stroke();
+  }
+  
+  // X-axis (months)
+  ctx.textAlign = 'center';
+  const mons = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  mons.forEach((m, i) => {
+    const doy = i * 30.44 + 15;
+    const x = margin.left + (doy / 365) * pw;
+    ctx.fillText(m, x, margin.top + ph + 15);
+  });
+}
+
+function getDOY(date) {
+  const start = new Date(date.getFullYear(), 0, 0);
+  return Math.floor((date - start) / 86400000);
+}
+
+// ── Toggle Controls ────────────────────────────────────
+function toggleSunPath() {
+  sunPathVisible = !sunPathVisible;
+  document.getElementById('btnSunPath').classList.toggle('active', sunPathVisible);
+  drawSunPath();
+  drawDayLengthChart();
+}
+
+function toggleShadows() {
+  shadowsEnabled = !shadowsEnabled;
+  viewer.shadows = shadowsEnabled;
+  viewer.scene.globe.enableLighting = true;
+  document.getElementById('btnShadows').classList.toggle('active', shadowsEnabled);
+  if (shadowsEnabled) updateSolarInfo();
+  viewer.scene.requestRender();
+}
+
+function toggleBuildings() {
+  if (!buildingsLoaded) {
+    addSampleBuildings();
+    buildingsLoaded = true;
+  }
+  document.getElementById('btnBuildings').classList.toggle('active', buildingsLoaded);
+}
+
+function addSampleBuildings() {
+  // Clear any previous building entities
+  const buildingEntities = [];
+  
+  // Create a realistic city block around the current location
+  // Target building (your roof) in bright red, neighbors in white/gray
+  const buildings = [
+    // Target building (center, highlighted)
+    { dlat: 0, dlng: 0, pts: [[-12,-8],[12,-8],[12,8],[-12,8]], h: 12, color: '#E53935', name: 'Your Building', opacity: 1.0 },
+    
+    // Immediate neighbors (close, casting shadows on target)
+    { dlat: 0.00025, dlng: 0.00015, pts: [[-10,-7],[10,-7],[10,7],[-10,7]], h: 40, color: '#ECEFF1', name: 'Tower A', opacity: 0.85 },
+    { dlat: -0.00020, dlng: 0.00030, pts: [[-8,-6],[8,-6],[8,6],[-8,6]], h: 30, color: '#CFD8DC', name: 'Block B', opacity: 0.85 },
+    { dlat: 0.00010, dlng: -0.00035, pts: [[-15,-8],[15,-8],[15,8],[-15,8]], h: 50, color: '#B0BEC5', name: 'Highrise C', opacity: 0.85 },
+    
+    // Medium distance buildings
+    { dlat: -0.00035, dlng: -0.00025, pts: [[-12,-6],[12,-6],[12,6],[-12,6]], h: 25, color: '#ECEFF1', name: '', opacity: 0.7 },
+    { dlat: 0.00040, dlng: -0.00010, pts: [[-7,-10],[7,-10],[7,10],[-7,10]], h: 35, color: '#CFD8DC', name: '', opacity: 0.7 },
+    { dlat: -0.00010, dlng: -0.00050, pts: [[-9,-7],[9,-7],[9,7],[-9,7]], h: 20, color: '#ECEFF1', name: '', opacity: 0.7 },
+    { dlat: 0.00030, dlng: 0.00040, pts: [[-6,-12],[6,-12],[6,12],[-6,12]], h: 28, color: '#B0BEC5', name: '', opacity: 0.7 },
+    
+    // Far buildings for context
+    { dlat: -0.00050, dlng: 0.00040, pts: [[-10,-8],[10,-8],[10,8],[-10,8]], h: 18, color: '#ECEFF1', name: '', opacity: 0.55 },
+    { dlat: 0.00055, dlng: 0.00035, pts: [[-8,-8],[8,-8],[8,8],[-8,8]], h: 22, color: '#CFD8DC', name: '', opacity: 0.55 },
+    { dlat: 0.00045, dlng: -0.00045, pts: [[-14,-6],[14,-6],[14,6],[-14,6]], h: 15, color: '#ECEFF1', name: '', opacity: 0.55 },
+    { dlat: -0.00045, dlng: -0.00050, pts: [[-10,-10],[10,-10],[10,10],[-10,10]], h: 32, color: '#B0BEC5', name: '', opacity: 0.55 },
+  ];
+  
+  // Add a large ground plane for shadow visibility
+  const groundSize = 0.001; // ~110m
+  buildingEntities.push(viewer.entities.add({
+    polygon: {
+      hierarchy: Cesium.Cartesian3.fromDegreesArray([
+        currentLng - groundSize, currentLat - groundSize,
+        currentLng + groundSize, currentLat - groundSize,
+        currentLng + groundSize, currentLat + groundSize,
+        currentLng - groundSize, currentLat + groundSize,
+      ]),
+      material: Cesium.Color.fromCssColorString('#2E7D32').withAlpha(0.35),
+      outline: false,
+      shadows: Cesium.ShadowMode.RECEIVE_ONLY,
+    },
+  }));
+  
+  buildings.forEach((b) => {
+    const cosLat = Math.cos(currentLat * Math.PI / 180);
+    // Convert local meter offsets to lat/lng polygon
+    const coords = [];
+    b.pts.forEach(p => {
+      const mLng = p[0] / (111320 * cosLat);
+      const mLat = p[1] / 111320;
+      coords.push(currentLng + b.dlng + mLng);
+      coords.push(currentLat + b.dlat + mLat);
+    });
+    
+    const entity = viewer.entities.add({
+      polygon: {
+        hierarchy: Cesium.Cartesian3.fromDegreesArray(coords),
+        extrudedHeight: b.h,
+        material: Cesium.Color.fromCssColorString(b.color).withAlpha(b.opacity),
+        outline: true,
+        outlineColor: Cesium.Color.fromCssColorString(b.color === '#E53935' ? '#FF8A80' : '#78909C').withAlpha(0.8),
+        shadows: Cesium.ShadowMode.ENABLED,
+      },
+    });
+    buildingEntities.push(entity);
+    
+    // Add labels to named buildings
+    if (b.name) {
+      buildingEntities.push(viewer.entities.add({
+        position: Cesium.Cartesian3.fromDegrees(currentLng + b.dlng, currentLat + b.dlat, b.h + 3),
+        label: {
+          text: b.name + ' (' + b.h + 'm)',
+          font: 'bold 12px sans-serif',
+          fillColor: b.color === '#E53935' ? Cesium.Color.fromCssColorString('#FF8A80') : Cesium.Color.WHITE,
+          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+          outlineWidth: 3, outlineColor: Cesium.Color.BLACK,
+          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+          disableDepthTestDistance: Number.POSITIVE_INFINITY,
+          scaleByDistance: new Cesium.NearFarScalar(100, 1.0, 2000, 0.3),
+        }
+      }));
+    }
+  });
+  
+  entities.push(...buildingEntities);
+  
+  // Auto-enable shadows for the demo
+  if (!shadowsEnabled) {
+    shadowsEnabled = true;
+    viewer.shadows = true;
+    viewer.scene.globe.enableLighting = true;
+    document.getElementById('btnShadows').classList.add('active');
+    
+    // Set time to 10 AM IST for dramatic shadows
+    document.getElementById('timeSlider').value = 600; // 10:00 IST
+    updateSolarInfo();
+  }
+  
+  // Fly to a good viewing angle (tilted, from south looking north)
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(currentLng - 0.0003, currentLat - 0.0008, 200),
+    orientation: {
+      heading: Cesium.Math.toRadians(15),
+      pitch: Cesium.Math.toRadians(-35),
+      roll: 0,
+    },
+    duration: 2,
+  });
+  viewer.scene.requestRender();
+}
+
+// ── Playback ───────────────────────────────────────────
+function togglePlay() {
+  playing = !playing;
+  document.getElementById('btnPlay').classList.toggle('active', playing);
+  document.getElementById('btnPlay').textContent = playing ? '⏸' : '▶';
+  
+  if (playing) {
+    playInterval = setInterval(() => {
+      const slider = document.getElementById('timeSlider');
+      let val = parseInt(slider.value) + 5;
+      if (val > 1440) val = 0;
+      slider.value = val;
+      updateSolarInfo();
+    }, 100);
+  } else {
+    clearInterval(playInterval);
+  }
+}
+
+function getSelectedDate() {
+  const val = document.getElementById('dateInput').value;
+  if (val) return new Date(val + 'T00:00:00');
+  return new Date();
+}
+
+// ── Search ─────────────────────────────────────────────
+let searchTimeout;
+const searchInput = document.getElementById('searchInput');
+const suggestionsEl = document.getElementById('suggestions');
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 3) { suggestionsEl.classList.remove('active'); return; }
+  searchTimeout = setTimeout(() => searchAddress(q), 300);
+});
+
+async function searchAddress(query) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`,
+      { headers: { 'User-Agent': 'SolarRes/1.0' } }
+    );
+    const results = await res.json();
+    suggestionsEl.innerHTML = '';
+    if (results.length === 0) { suggestionsEl.classList.remove('active'); return; }
+
+    results.forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = r.display_name;
+      div.onclick = () => {
+        const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+        currentLat = lat; currentLng = lng;
+        viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(lng, lat, 500), duration: 1.5 });
+        searchInput.value = r.display_name;
+        suggestionsEl.classList.remove('active');
+        document.getElementById('infoLocation').textContent = r.display_name.split(',').slice(0, 2).join(',');
+        updateSolarInfo();
+        if (sunPathVisible) drawSunPath();
+        drawDayLengthChart();
+        sendToRN({ type: 'ADDRESS_SELECTED', lat, lng, name: r.display_name });
+      };
+      suggestionsEl.appendChild(div);
+    });
+    suggestionsEl.classList.add('active');
+  } catch (e) { console.error('Search error:', e); }
+}
+
+// ── Drawing ────────────────────────────────────────────
+function startDrawing() {
+  drawing = true; positions = []; clearDrawEntities();
+  document.getElementById('btnDraw').classList.add('active');
+  document.getElementById('btnFinish').style.display = 'block';
+  document.getElementById('areaBadge').style.display = 'none';
+
+  const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+  handler.setInputAction((click) => {
+    if (!drawing) return;
+    const cartesian = viewer.scene.pickPosition(click.position) ||
+      viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
+    if (!cartesian) return;
+    positions.push(cartesian);
+    entities.push(viewer.entities.add({
+      position: cartesian,
+      point: { pixelSize: 8, color: Cesium.Color.fromCssColorString('#FF6B35'), outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+    }));
+    if (positions.length >= 2) {
+      if (polyline) viewer.entities.remove(polyline);
+      polyline = viewer.entities.add({ polyline: { positions: [...positions, positions[0]], width: 3, material: Cesium.Color.fromCssColorString('#FF6B35').withAlpha(0.8), clampToGround: true } });
+    }
+    if (positions.length >= 3) {
+      if (polygon) viewer.entities.remove(polygon);
+      polygon = viewer.entities.add({ polygon: { hierarchy: new Cesium.PolygonHierarchy(positions), material: Cesium.Color.fromCssColorString('#FF6B35').withAlpha(0.25), outline: true, outlineColor: Cesium.Color.fromCssColorString('#FF6B35') } });
+      const area = calculateGeodesicArea(positions);
+      document.getElementById('areaBadge').textContent = `📐 ${area.toFixed(1)} m²`;
+      document.getElementById('areaBadge').style.display = 'block';
+    }
+    viewer.scene.requestRender();
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+  handler.setInputAction(() => { if (drawing) finishDrawing(); }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+  window._drawHandler = handler;
+}
+
+function finishDrawing() {
+  drawing = false;
+  document.getElementById('btnDraw').classList.remove('active');
+  document.getElementById('btnFinish').style.display = 'none';
+  if (window._drawHandler) { window._drawHandler.destroy(); window._drawHandler = null; }
+  if (positions.length >= 3) {
+    const area = calculateGeodesicArea(positions);
+    const centroid = calculateCentroid(positions);
+    currentLat = centroid.lat; currentLng = centroid.lng;
+    updateSolarInfo();
+    sendToRN({ type: 'POLYGON_DRAWN', area, latitude: centroid.lat, longitude: centroid.lng, vertexCount: positions.length });
+  }
+}
+
+function resetDrawing() {
+  drawing = false; positions = []; clearDrawEntities();
+  document.getElementById('btnDraw').classList.remove('active');
+  document.getElementById('btnFinish').style.display = 'none';
+  document.getElementById('areaBadge').style.display = 'none';
+  if (window._drawHandler) { window._drawHandler.destroy(); window._drawHandler = null; }
+  viewer.scene.requestRender();
+}
+
+function clearDrawEntities() {
+  // Only clear drawing entities, not building entities
+  if (polyline) { viewer.entities.remove(polyline); polyline = null; }
+  if (polygon) { viewer.entities.remove(polygon); polygon = null; }
+}
+
+function calculateGeodesicArea(cartesians) {
+  const coords = cartesians.map(c => { const ct = Cesium.Cartographic.fromCartesian(c); return { lat: Cesium.Math.toDegrees(ct.latitude), lng: Cesium.Math.toDegrees(ct.longitude) }; });
+  const R = 6371000; let area = 0;
+  for (let i = 0; i < coords.length; i++) { const j = (i + 1) % coords.length; area += (coords[j].lng - coords[i].lng) * Math.PI / 180 * (2 + Math.sin(coords[i].lat * Math.PI / 180) + Math.sin(coords[j].lat * Math.PI / 180)); }
+  return Math.abs(area * R * R / 2);
+}
+
+function calculateCentroid(cartesians) {
+  let sLat = 0, sLng = 0;
+  cartesians.forEach(c => { const ct = Cesium.Cartographic.fromCartesian(c); sLat += Cesium.Math.toDegrees(ct.latitude); sLng += Cesium.Math.toDegrees(ct.longitude); });
+  return { lat: sLat / cartesians.length, lng: sLng / cartesians.length };
+}
+
+// ── Premium Features ───────────────────────────────────
+function flyTo(lat, lng, height) { currentLat = lat; currentLng = lng; viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(lng, lat, height || 500), duration: 1.5 }); updateSolarInfo(); }
+function enableShadows(enable) { shadowsEnabled = enable; viewer.shadows = enable; viewer.scene.globe.enableLighting = true; document.getElementById('btnShadows').classList.toggle('active', enable); updateSolarInfo(); }
+function setSunTime(localHour, month, day) { document.getElementById('timeSlider').value = localHour * 60; if (month) { const d = new Date(2024, month - 1, day || 15); document.getElementById('dateInput').value = d.toISOString().split('T')[0]; } updateSolarInfo(); }
+
+function placePanelGrid(lat, lng, count, w, h, tilt, azimuth, spacing, height) {
+  clearPanels();
+  const cols = Math.ceil(Math.sqrt(count * (w / h)));
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  const latStep = (h + spacing) / 111320;
+  const lngStep = (w + spacing) / (111320 * cosLat);
+  let placed = 0; const rows = Math.ceil(count / cols);
+  for (let r = 0; r < rows && placed < count; r++) {
+    for (let c = 0; c < cols && placed < count; c++) {
+      solarPanels.push(viewer.entities.add({
+        id: 'panel_' + placed,
+        position: Cesium.Cartesian3.fromDegrees(lng + c * lngStep, lat + r * latStep, (height || 3) + 0.1),
+        box: { dimensions: new Cesium.Cartesian3(w, h, 0.05), material: Cesium.Color.fromCssColorString('#1a6dd4').withAlpha(0.8), outline: true, outlineColor: Cesium.Color.fromCssColorString('#4ECDC4'), shadows: Cesium.ShadowMode.ENABLED },
+      }));
+      placed++;
+    }
+  }
+  viewer.scene.requestRender();
+}
+
+function clearPanels() { solarPanels.forEach(e => viewer.entities.remove(e)); solarPanels = []; viewer.scene.requestRender(); }
+
+function colorPanelByShadow(panelId, fraction) {
+  const entity = viewer.entities.getById(panelId);
+  if (!entity) return;
+  entity.box.material = new Cesium.Color(fraction, 1 - fraction, 0.2, 0.85);
+  viewer.scene.requestRender();
+}
+
+function showOsmFootprints(buildings, shadowImpacts) {
+  buildings.forEach(b => {
+    if (!b.footprint || b.footprint.length < 3) return;
+    const coords = []; b.footprint.forEach(p => { coords.push(p[1], p[0]); });
+    let color = Cesium.Color.fromCssColorString('#3B82F6').withAlpha(0.3);
+    if (shadowImpacts) {
+      const impact = shadowImpacts.find(s => s.buildingId === b.id);
+      if (impact && impact.shadowContributionPercent > 20) color = Cesium.Color.fromCssColorString('#ef5350').withAlpha(0.4);
+      else if (impact && impact.shadowContributionPercent > 5) color = Cesium.Color.fromCssColorString('#F59E0B').withAlpha(0.35);
+    }
+    entities.push(viewer.entities.add({ polygon: { hierarchy: Cesium.Cartesian3.fromDegreesArray(coords), material: color, outline: true, outlineColor: Cesium.Color.WHITE.withAlpha(0.3), extrudedHeight: b.heightMeters, shadows: Cesium.ShadowMode.ENABLED } }));
+  });
+  viewer.scene.requestRender();
+}
+
+// ── RN Bridge ──────────────────────────────────────────
+function sendToRN(data) {
+  const json = JSON.stringify(data);
+  if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(json);
+  if (window.parent && window.parent !== window) window.parent.postMessage(json, '*');
+}
+
+document.addEventListener('message', (e) => handleRNMessage(e.data));
+window.addEventListener('message', (e) => handleRNMessage(e.data));
+
+function handleRNMessage(raw) {
+  try {
+    const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    switch (msg.action) {
+      case 'flyTo': flyTo(msg.lat, msg.lng, msg.height); break;
+      case 'enableShadows': enableShadows(msg.enable); break;
+      case 'setSunTime': setSunTime(msg.hour, msg.month, msg.day); break;
+      case 'load3DBuildings': toggleBuildings(); break;
+      case 'startDrawing': startDrawing(); break;
+      case 'resetDrawing': resetDrawing(); break;
+      case 'placePanels': placePanelGrid(msg.lat, msg.lng, msg.count, msg.w, msg.h, msg.tilt, msg.azimuth, msg.spacing, msg.height); break;
+      case 'clearPanels': clearPanels(); break;
+      case 'colorPanel': colorPanelByShadow(msg.panelId, msg.fraction); break;
+      case 'showFootprints': showOsmFootprints(msg.buildings, msg.shadowImpacts); break;
+      case 'showSunPath': sunPathVisible = true; document.getElementById('btnSunPath').classList.add('active'); drawSunPath(); break;
+    }
+  } catch (e) { /* ignore */ }
+}
+
+// ── Event Listeners ────────────────────────────────────
+document.getElementById('timeSlider').addEventListener('input', updateSolarInfo);
+document.getElementById('dateInput').addEventListener('change', () => { updateSolarInfo(); if (sunPathVisible) drawSunPath(); drawDayLengthChart(); });
+
+// ── Boot ───────────────────────────────────────────────
+initViewer();
+drawDayLengthChart();
+sendToRN({ type: 'VIEWER_READY' });
+</script>
+</body>
+</html>

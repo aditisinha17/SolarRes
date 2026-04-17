@@ -1,0 +1,443 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>SolarRes Map</title>
+<script src="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Cesium.js"></script>
+<link href="https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/Widgets/widgets.css" rel="stylesheet" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body, #cesiumContainer { width: 100%; height: 100%; overflow: hidden; }
+  .search-box {
+    position: absolute; top: 12px; left: 12px; right: 12px; z-index: 1000;
+    display: flex; gap: 8px;
+  }
+  .search-box input {
+    flex: 1; padding: 12px 16px; border-radius: 12px;
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1); color: #fff; font-size: 14px;
+    outline: none;
+  }
+  .search-box input::placeholder { color: rgba(255,255,255,0.4); }
+  .suggestions {
+    position: absolute; top: 52px; left: 0; right: 0;
+    background: rgba(10,10,18,0.95); backdrop-filter: blur(16px);
+    border-radius: 12px; border: 1px solid rgba(255,255,255,0.1);
+    max-height: 240px; overflow-y: auto; display: none;
+  }
+  .suggestions.active { display: block; }
+  .suggestion-item {
+    padding: 12px 16px; color: rgba(255,255,255,0.8); font-size: 13px;
+    border-bottom: 1px solid rgba(255,255,255,0.05); cursor: pointer;
+  }
+  .suggestion-item:hover { background: rgba(255,107,53,0.15); }
+  .toolbar {
+    position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+    display: flex; gap: 8px; z-index: 1000;
+  }
+  .toolbar button {
+    padding: 10px 20px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    color: #fff; font-size: 13px; font-weight: 600; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toolbar button:hover { background: rgba(255,107,53,0.2); border-color: #FF6B35; }
+  .toolbar button.active { background: #FF6B35; border-color: #FF6B35; }
+  .area-badge {
+    position: absolute; top: 60px; right: 12px; z-index: 1000;
+    padding: 10px 16px; border-radius: 10px;
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    border: 1px solid rgba(78,205,196,0.3); color: #4ECDC4;
+    font-size: 14px; font-weight: 600; display: none;
+  }
+  .info-hud {
+    position: absolute; top: 12px; right: 12px; z-index: 1000;
+    padding: 12px; border-radius: 10px;
+    background: rgba(10,10,18,0.85); backdrop-filter: blur(16px);
+    border: 1px solid rgba(255,255,255,0.1); color: rgba(255,255,255,0.7);
+    font-size: 11px; display: none;
+  }
+</style>
+</head>
+<body>
+<div id="cesiumContainer"></div>
+<div class="search-box">
+  <input id="searchInput" type="text" placeholder="🔍 Search location in India..." />
+  <div class="suggestions" id="suggestions"></div>
+</div>
+<div class="area-badge" id="areaBadge"></div>
+<div class="info-hud" id="infoHud"></div>
+<div class="toolbar" id="toolbar">
+  <button id="btnDraw" onclick="startDrawing()">✏️ Draw Roof</button>
+  <button id="btnFinish" onclick="finishDrawing()" style="display:none">✅ Finish</button>
+  <button id="btnReset" onclick="resetDrawing()">🗑️ Reset</button>
+</div>
+
+<script>
+// ── Globals ────────────────────────────────────────────
+window.CESIUM_BASE_URL = 'https://cesium.com/downloads/cesiumjs/releases/1.124/Build/Cesium/';
+Cesium.Ion.defaultAccessToken = null;
+
+let viewer, drawing = false, positions = [], polyline, polygon;
+let entities = [], obstacles = [], solarPanels = [];
+
+// ── Init Viewer ────────────────────────────────────────
+function initViewer() {
+  viewer = new Cesium.Viewer('cesiumContainer', {
+    imageryProvider: new Cesium.UrlTemplateImageryProvider({
+      url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      credit: 'ESRI World Imagery',
+    }),
+    baseLayerPicker: false, geocoder: false, homeButton: false,
+    timeline: false, animation: false, navigationHelpButton: false,
+    sceneModePicker: false, fullscreenButton: false,
+    requestRenderMode: true, maximumRenderTimeChange: Infinity,
+    shadows: false,
+  });
+  viewer.scene.globe.enableLighting = true;
+
+  // Fly to India
+  viewer.camera.flyTo({
+    destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 5000000),
+    duration: 2,
+  });
+
+  // Additional imagery layers
+  const layers = viewer.scene.imageryLayers;
+  // OSM labels overlay
+  layers.addImageryProvider(new Cesium.UrlTemplateImageryProvider({
+    url: 'https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}@2x.png',
+    credit: 'CartoDB Labels',
+  }));
+}
+
+// ── Search ─────────────────────────────────────────────
+let searchTimeout;
+const searchInput = document.getElementById('searchInput');
+const suggestionsEl = document.getElementById('suggestions');
+
+searchInput.addEventListener('input', () => {
+  clearTimeout(searchTimeout);
+  const q = searchInput.value.trim();
+  if (q.length < 3) { suggestionsEl.classList.remove('active'); return; }
+  searchTimeout = setTimeout(() => searchAddress(q), 300);
+});
+
+async function searchAddress(query) {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`,
+      { headers: { 'User-Agent': 'SolarRes/1.0' } }
+    );
+    const results = await res.json();
+    suggestionsEl.innerHTML = '';
+    if (results.length === 0) { suggestionsEl.classList.remove('active'); return; }
+
+    results.forEach(r => {
+      const div = document.createElement('div');
+      div.className = 'suggestion-item';
+      div.textContent = r.display_name;
+      div.onclick = () => {
+        const lat = parseFloat(r.lat), lng = parseFloat(r.lon);
+        viewer.camera.flyTo({
+          destination: Cesium.Cartesian3.fromDegrees(lng, lat, 500),
+          duration: 1.5,
+        });
+        searchInput.value = r.display_name;
+        suggestionsEl.classList.remove('active');
+        sendToRN({ type: 'ADDRESS_SELECTED', lat, lng, name: r.display_name });
+      };
+      suggestionsEl.appendChild(div);
+    });
+    suggestionsEl.classList.add('active');
+  } catch (e) { console.error('Search error:', e); }
+}
+
+// ── Drawing ────────────────────────────────────────────
+function startDrawing() {
+  drawing = true;
+  positions = [];
+  clearEntities();
+  document.getElementById('btnDraw').classList.add('active');
+  document.getElementById('btnFinish').style.display = 'block';
+  document.getElementById('areaBadge').style.display = 'none';
+
+  const handler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas);
+
+  handler.setInputAction((click) => {
+    if (!drawing) return;
+    const cartesian = viewer.scene.pickPosition(click.position) ||
+      viewer.camera.pickEllipsoid(click.position, viewer.scene.globe.ellipsoid);
+    if (!cartesian) return;
+
+    positions.push(cartesian);
+
+    // Add vertex marker
+    entities.push(viewer.entities.add({
+      position: cartesian,
+      point: { pixelSize: 8, color: Cesium.Color.fromCssColorString('#FF6B35'), outlineColor: Cesium.Color.WHITE, outlineWidth: 2 },
+    }));
+
+    // Update polyline
+    if (positions.length >= 2) {
+      if (polyline) viewer.entities.remove(polyline);
+      polyline = viewer.entities.add({
+        polyline: {
+          positions: [...positions, positions[0]],
+          width: 3, material: Cesium.Color.fromCssColorString('#FF6B35').withAlpha(0.8),
+          clampToGround: true,
+        },
+      });
+    }
+
+    // Update polygon
+    if (positions.length >= 3) {
+      if (polygon) viewer.entities.remove(polygon);
+      polygon = viewer.entities.add({
+        polygon: {
+          hierarchy: new Cesium.PolygonHierarchy(positions),
+          material: Cesium.Color.fromCssColorString('#FF6B35').withAlpha(0.25),
+          outline: true, outlineColor: Cesium.Color.fromCssColorString('#FF6B35'),
+          outlineWidth: 2,
+        },
+      });
+
+      // Calculate area
+      const area = calculateGeodesicArea(positions);
+      const areaBadge = document.getElementById('areaBadge');
+      areaBadge.textContent = `📐 ${area.toFixed(1)} m²`;
+      areaBadge.style.display = 'block';
+    }
+
+    viewer.scene.requestRender();
+  }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+  handler.setInputAction(() => { if (drawing) finishDrawing(); }, Cesium.ScreenSpaceEventType.RIGHT_CLICK);
+
+  window._drawHandler = handler;
+}
+
+function finishDrawing() {
+  drawing = false;
+  document.getElementById('btnDraw').classList.remove('active');
+  document.getElementById('btnFinish').style.display = 'none';
+
+  if (window._drawHandler) {
+    window._drawHandler.destroy();
+    window._drawHandler = null;
+  }
+
+  if (positions.length >= 3) {
+    const area = calculateGeodesicArea(positions);
+    const centroid = calculateCentroid(positions);
+    sendToRN({
+      type: 'POLYGON_DRAWN',
+      area: area,
+      latitude: centroid.lat,
+      longitude: centroid.lng,
+      vertexCount: positions.length,
+    });
+  }
+}
+
+function resetDrawing() {
+  drawing = false;
+  positions = [];
+  clearEntities();
+  document.getElementById('btnDraw').classList.remove('active');
+  document.getElementById('btnFinish').style.display = 'none';
+  document.getElementById('areaBadge').style.display = 'none';
+  if (window._drawHandler) { window._drawHandler.destroy(); window._drawHandler = null; }
+  viewer.scene.requestRender();
+}
+
+function clearEntities() {
+  entities.forEach(e => viewer.entities.remove(e));
+  entities = [];
+  if (polyline) { viewer.entities.remove(polyline); polyline = null; }
+  if (polygon) { viewer.entities.remove(polygon); polygon = null; }
+}
+
+// ── Geodesic Area Calculation ──────────────────────────
+function calculateGeodesicArea(cartesians) {
+  const coords = cartesians.map(c => {
+    const carto = Cesium.Cartographic.fromCartesian(c);
+    return { lat: Cesium.Math.toDegrees(carto.latitude), lng: Cesium.Math.toDegrees(carto.longitude) };
+  });
+  // Shoelace on WGS84 approximation
+  const R = 6371000;
+  let area = 0;
+  for (let i = 0; i < coords.length; i++) {
+    const j = (i + 1) % coords.length;
+    const lat1 = coords[i].lat * Math.PI / 180;
+    const lat2 = coords[j].lat * Math.PI / 180;
+    const dLng = (coords[j].lng - coords[i].lng) * Math.PI / 180;
+    area += dLng * (2 + Math.sin(lat1) + Math.sin(lat2));
+  }
+  return Math.abs(area * R * R / 2);
+}
+
+function calculateCentroid(cartesians) {
+  let sumLat = 0, sumLng = 0;
+  const coords = cartesians.map(c => {
+    const carto = Cesium.Cartographic.fromCartesian(c);
+    const lat = Cesium.Math.toDegrees(carto.latitude);
+    const lng = Cesium.Math.toDegrees(carto.longitude);
+    sumLat += lat; sumLng += lng;
+    return { lat, lng };
+  });
+  return { lat: sumLat / coords.length, lng: sumLng / coords.length };
+}
+
+// ── Premium Features ───────────────────────────────────
+function flyTo(lat, lng, height) {
+  viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(lng, lat, height || 500), duration: 1.5 });
+}
+
+function enableShadows(enable) {
+  viewer.shadows = enable;
+  viewer.scene.globe.enableLighting = enable;
+  viewer.scene.requestRender();
+}
+
+function setSunTime(localHour, month, day) {
+  const year = 2024;
+  const utcHour = localHour - 5.5;
+  const date = new Date(Date.UTC(year, (month || 6) - 1, day || 15, Math.floor(utcHour), (utcHour % 1) * 60));
+  viewer.clock.currentTime = Cesium.JulianDate.fromDate(date);
+  viewer.scene.requestRender();
+}
+
+function load3DBuildings() {
+  try {
+    const tileset = viewer.scene.primitives.add(
+      new Cesium.Cesium3DTileset({
+        url: Cesium.IonResource.fromAssetId(96188),
+      })
+    );
+    return true;
+  } catch (e) {
+    // Fallback: try ESRI I3S
+    try {
+      Cesium.I3SDataProvider.fromUrl('https://tiles.arcgis.com/tiles/z2tnIkrLQ2BRzr6P/arcgis/rest/services/Open3D_Buildings_v1/SceneServer', {
+        geoidTiledTerrainProvider: undefined,
+      }).then(provider => {
+        viewer.scene.primitives.add(provider);
+      });
+      return true;
+    } catch (e2) { return false; }
+  }
+}
+
+function placePanelGrid(lat, lng, count, w, h, tilt, azimuth, spacing, height) {
+  clearPanels();
+  const cols = Math.ceil(Math.sqrt(count * (w / h)));
+  const cosLat = Math.cos(lat * Math.PI / 180);
+  const latStep = (h + spacing) / 111320;
+  const lngStep = (w + spacing) / (111320 * cosLat);
+
+  let placed = 0;
+  const rows = Math.ceil(count / cols);
+  for (let r = 0; r < rows && placed < count; r++) {
+    for (let c = 0; c < cols && placed < count; c++) {
+      const pLat = lat + r * latStep;
+      const pLng = lng + c * lngStep;
+      const entity = viewer.entities.add({
+        id: 'panel_' + placed,
+        position: Cesium.Cartesian3.fromDegrees(pLng, pLat, (height || 3) + 0.1),
+        box: {
+          dimensions: new Cesium.Cartesian3(w, h, 0.05),
+          material: Cesium.Color.fromCssColorString('#1a6dd4').withAlpha(0.8),
+          outline: true, outlineColor: Cesium.Color.fromCssColorString('#4ECDC4'),
+        },
+      });
+      solarPanels.push(entity);
+      placed++;
+    }
+  }
+  viewer.scene.requestRender();
+}
+
+function clearPanels() {
+  solarPanels.forEach(e => viewer.entities.remove(e));
+  solarPanels = [];
+  viewer.scene.requestRender();
+}
+
+function colorPanelByShadow(panelId, fraction) {
+  const entity = viewer.entities.getById(panelId);
+  if (!entity) return;
+  const r = fraction, g = 1 - fraction, b = 0.2;
+  entity.box.material = new Cesium.Color(r, g, b, 0.85);
+  viewer.scene.requestRender();
+}
+
+function showOsmFootprints(buildings, shadowImpacts) {
+  buildings.forEach(b => {
+    if (!b.footprint || b.footprint.length < 3) return;
+    const coords = [];
+    b.footprint.forEach(p => { coords.push(p[1], p[0]); }); // lon, lat
+
+    let color = Cesium.Color.fromCssColorString('#3B82F6').withAlpha(0.3);
+    if (shadowImpacts) {
+      const impact = shadowImpacts.find(s => s.buildingId === b.id);
+      if (impact && impact.shadowContributionPercent > 20) {
+        color = Cesium.Color.fromCssColorString('#ef5350').withAlpha(0.4);
+      } else if (impact && impact.shadowContributionPercent > 5) {
+        color = Cesium.Color.fromCssColorString('#F59E0B').withAlpha(0.35);
+      }
+    }
+
+    entities.push(viewer.entities.add({
+      polygon: {
+        hierarchy: Cesium.Cartesian3.fromDegreesArray(coords),
+        material: color,
+        outline: true, outlineColor: Cesium.Color.WHITE.withAlpha(0.3),
+        extrudedHeight: b.heightMeters,
+      },
+    }));
+  });
+  viewer.scene.requestRender();
+}
+
+// ── RN Bridge ──────────────────────────────────────────
+function sendToRN(data) {
+  const json = JSON.stringify(data);
+  if (window.ReactNativeWebView) {
+    window.ReactNativeWebView.postMessage(json);
+  }
+  // Also post to parent for iframe (web) usage
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage(json, '*');
+  }
+}
+
+// Listen for messages from RN
+document.addEventListener('message', (e) => handleRNMessage(e.data));
+window.addEventListener('message', (e) => handleRNMessage(e.data));
+
+function handleRNMessage(raw) {
+  try {
+    const msg = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    switch (msg.action) {
+      case 'flyTo': flyTo(msg.lat, msg.lng, msg.height); break;
+      case 'enableShadows': enableShadows(msg.enable); break;
+      case 'setSunTime': setSunTime(msg.hour, msg.month, msg.day); break;
+      case 'load3DBuildings': load3DBuildings(); break;
+      case 'startDrawing': startDrawing(); break;
+      case 'resetDrawing': resetDrawing(); break;
+      case 'placePanels': placePanelGrid(msg.lat, msg.lng, msg.count, msg.w, msg.h, msg.tilt, msg.azimuth, msg.spacing, msg.height); break;
+      case 'clearPanels': clearPanels(); break;
+      case 'colorPanel': colorPanelByShadow(msg.panelId, msg.fraction); break;
+      case 'showFootprints': showOsmFootprints(msg.buildings, msg.shadowImpacts); break;
+    }
+  } catch (e) { console.error('RN message error:', e); }
+}
+
+// ── Boot ───────────────────────────────────────────────
+initViewer();
+sendToRN({ type: 'VIEWER_READY' });
+</script>
+</body>
+</html>

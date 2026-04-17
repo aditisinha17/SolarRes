@@ -1,0 +1,16 @@
+{
+  "name": "solar-res",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SolarRes — Solar Rooftop Estimator for India",
+  "workspaces": [
+    "shared",
+    "server"
+  ],
+  "scripts": {
+    "dev:server": "cd server && npm run dev",
+    "build:shared": "cd shared && npm run build",
+    "build:server": "cd server && npm run build",
+    "test": "cd server && npm test"
+  }
+}

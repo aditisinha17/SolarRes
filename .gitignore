@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+.expo/
+dist/
+
+# Build
+*.tsbuildinfo
+server/dist/
+server/coverage/
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Reports
+reports/
+
+# Logs
+*.log
+npm-debug.log*

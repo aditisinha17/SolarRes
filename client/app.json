@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "SolarRes",
+    "slug": "solar-res",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "scheme": "solarres",
+    "splash": {
+      "backgroundColor": "#0a0a12"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.solarres.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#0a0a12"
+      },
+      "package": "com.solarres.app"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-asset"
+    ]
+  }
+}
