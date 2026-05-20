@@ -39,6 +39,15 @@ export default function FormScreen() {
 
   const compassLabel = COMPASS[Math.round(azimuth / 45) % 8];
 
+  // Live Estimates
+  const usableArea = roofArea * 0.70 * (1 - obstruction / 100);
+  const panelSizePerKw = panelType === 'ThinFilm' ? 7.7 : panelType === 'Polycrystalline' ? 5.9 : 4.8;
+  const costPerKw = panelType === 'ThinFilm' ? 45000 : panelType === 'Polycrystalline' ? 52000 : 62000;
+  
+  const rawCapacity = usableArea / panelSizePerKw;
+  const estCapacity = Math.max(0, Math.round(rawCapacity * 2) / 2);
+  const estCost = estCapacity * costPerKw;
+
   const handleSubmit = async () => {
     setLoading(true);
     try {
@@ -187,11 +196,29 @@ export default function FormScreen() {
           </View>
         </GlassCard>
 
+        {/* Live Estimate Preview */}
+        <View style={styles.liveEstimateBox}>
+          <Text style={styles.liveEstimateTitle}>Quick Estimate</Text>
+          <View style={styles.liveEstimateRow}>
+            <View style={styles.liveEstimateItem}>
+              <Ionicons name="flash" size={16} color={theme.colors.accentOrange} />
+              <Text style={styles.liveEstimateValue}>{estCapacity > 0 ? estCapacity.toFixed(1) : 0} kW</Text>
+              <Text style={styles.liveEstimateLabel}>Capacity</Text>
+            </View>
+            <View style={styles.liveEstimateDivider} />
+            <View style={styles.liveEstimateItem}>
+              <Ionicons name="cash" size={16} color={theme.colors.accentGreen} />
+              <Text style={styles.liveEstimateValue}>₹{(estCost / 100000).toFixed(1)}L</Text>
+              <Text style={styles.liveEstimateLabel}>Est. Cost</Text>
+            </View>
+          </View>
+        </View>
+
         {/* Submit */}
         <GlassButton
-          title="Calculate Solar Potential"
+          title="Full Detailed Calculation"
           onPress={handleSubmit}
-          icon="flash"
+          icon="analytics"
           loading={loading}
         />
 
@@ -223,4 +250,15 @@ const styles = StyleSheet.create({
   sliderContainer: { marginTop: 4 },
   slider: { width: '100%', height: 40 },
   sliderHint: { fontSize: 11, color: theme.colors.textMuted, marginTop: 4 },
+
+  liveEstimateBox: {
+    backgroundColor: theme.colors.bgCard, borderRadius: 14, padding: 16, marginBottom: 16,
+    borderWidth: 1, borderColor: theme.colors.accentOrange + '40',
+  },
+  liveEstimateTitle: { fontSize: 12, fontWeight: '700', color: theme.colors.textMuted, textTransform: 'uppercase', marginBottom: 12, textAlign: 'center', letterSpacing: 1 },
+  liveEstimateRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' },
+  liveEstimateItem: { alignItems: 'center', gap: 4 },
+  liveEstimateValue: { fontSize: 22, fontWeight: '800', color: theme.colors.textPrimary },
+  liveEstimateLabel: { fontSize: 11, color: theme.colors.textSecondary },
+  liveEstimateDivider: { width: 1, height: 30, backgroundColor: theme.colors.border },
 });

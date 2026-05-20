@@ -17,6 +17,7 @@ type Tab = 'shadows' | 'energy' | 'panels' | 'report';
 
 export default function PremiumScreen() {
   const webViewRef = useRef<WebView>(null);
+  const mainScrollRef = useRef<ScrollView>(null);
   const [activeTab, setActiveTab] = useState<Tab>('shadows');
   const [loading, setLoading] = useState(false);
 
@@ -65,6 +66,12 @@ export default function PremiumScreen() {
     sendCmd('setSunTime', { hour, month: sunMonth, day: 15 });
   };
 
+  const scrollToBottom = () => {
+    setTimeout(() => {
+      mainScrollRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  };
+
   const analyzeShadow = async () => {
     setLoading(true);
     try {
@@ -73,6 +80,7 @@ export default function PremiumScreen() {
         buildingHeightMeters: 3, analysisMonth: sunMonth, analysisHour: sunHour,
       });
       setShadowResult(result);
+      scrollToBottom();
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setLoading(false); }
   };
@@ -91,6 +99,7 @@ export default function PremiumScreen() {
           shadowImpacts: result.neighborShadowImpacts,
         });
       }
+      scrollToBottom();
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setLoading(false); }
   };
@@ -116,6 +125,7 @@ export default function PremiumScreen() {
       result.perPanelResults?.forEach((p: any) => {
         sendCmd('colorPanel', { panelId: p.panelId, fraction: p.avgShadowFraction });
       });
+      scrollToBottom();
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setLoading(false); }
   };
@@ -132,6 +142,7 @@ export default function PremiumScreen() {
         numberOfPanels: panelCount,
       });
       setReportInfo(result);
+      scrollToBottom();
     } catch (e: any) { Alert.alert('Error', e.message); }
     finally { setLoading(false); }
   };
@@ -144,7 +155,12 @@ export default function PremiumScreen() {
   ];
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+      ref={mainScrollRef} 
+      style={styles.container} 
+      contentContainerStyle={{ flexGrow: 1 }}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Map (background) */}
       {Platform.OS !== 'web' ? (
         <WebView
@@ -161,7 +177,7 @@ export default function PremiumScreen() {
           src="http://localhost:5029/cesium-map.html"
           style={{
             width: '100%',
-            height: '100%',
+            height: SCREEN_H * 0.65,
             border: 'none',
           } as any}
         />
@@ -183,8 +199,7 @@ export default function PremiumScreen() {
       </View>
 
       {/* Panel Content */}
-      <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent}
-        showsVerticalScrollIndicator={false}>
+      <View style={styles.panelContent}>
 
         {/* ── SHADOWS TAB ──────────────── */}
         {activeTab === 'shadows' && (
@@ -333,7 +348,7 @@ export default function PremiumScreen() {
             </GlassCard>
 
             {reportInfo && (
-              <GlassCard>
+              <GlassCard style={{ marginTop: 12 }}>
                 <View style={styles.reportInfo}>
                   <Ionicons name="checkmark-circle" size={24} color={theme.colors.accentGreen} />
                   <View style={{ flex: 1, marginLeft: 12 }}>
@@ -350,14 +365,14 @@ export default function PremiumScreen() {
         )}
 
         <View style={{ height: 40 }} />
-      </ScrollView>
-    </View>
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: theme.colors.bgPrimary },
-  mapView: { height: SCREEN_H * 0.4 },
+  mapView: { height: SCREEN_H * 0.65, width: '100%' },
   tabBar: {
     flexDirection: 'row', backgroundColor: theme.colors.bgSecondary,
     borderBottomWidth: 1, borderBottomColor: theme.colors.border,

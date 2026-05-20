@@ -69,10 +69,10 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
     let totalShaded = 0;
     let profileCount = 0;
 
-    for (let istHour = 6; istHour <= 18; istHour++) {
-      const utcHour = istHour - IST_OFFSET;
+    for (let istHour = 6; istHour <= 18; istHour += 0.5) {
+      const utcMinutes = Math.round((istHour - IST_OFFSET) * 60);
       const utcDate = new Date(Date.UTC(2024, analysisMonth - 1, 15,
-        Math.floor(utcHour), (utcHour % 1) * 60));
+        Math.floor(utcMinutes / 60), utcMinutes % 60));
 
       const sunPos = SolarCalculator.calculate(utcDate, latitude, longitude);
 
@@ -155,10 +155,10 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
       let monthShaded = 0;
       let monthHours = 0;
 
-      for (let istHour = 6; istHour <= 18; istHour++) {
-        const utcHour = istHour - IST_OFFSET;
+      for (let istHour = 6; istHour <= 18; istHour += 0.5) {
+        const utcMinutes = Math.round((istHour - IST_OFFSET) * 60);
         const utcDate = new Date(Date.UTC(2024, m, 15,
-          Math.floor(utcHour), (utcHour % 1) * 60));
+          Math.floor(utcMinutes / 60), utcMinutes % 60));
 
         const sunPos = SolarCalculator.calculate(utcDate, latitude, longitude);
         if (sunPos.elevation <= 0) continue;
@@ -182,10 +182,10 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
         const energyNoShadow = ghi * panelEfficiency * usableRoof / 1000;
         const energyWithShadow = energyNoShadow * (1 - maxShadow);
 
-        monthWithout += energyNoShadow;
-        monthWithShadow += energyWithShadow;
+        monthWithout += energyNoShadow * 0.5;
+        monthWithShadow += energyWithShadow * 0.5;
         monthShaded += maxShadow;
-        monthHours++;
+        monthHours += 0.5;
       }
 
       const days = DAYS_IN_MONTH[m];
@@ -209,9 +209,9 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
 
     // Representative June day profile
     const representativeDayProfile: HourlyEnergyProfile[] = [];
-    for (let istHour = 5; istHour <= 19; istHour++) {
-      const utcHour = istHour - IST_OFFSET;
-      const utcDate = new Date(Date.UTC(2024, 5, 15, Math.floor(utcHour), (utcHour % 1) * 60));
+    for (let istHour = 5; istHour <= 19; istHour += 0.5) {
+      const utcMinutes = Math.round((istHour - IST_OFFSET) * 60);
+      const utcDate = new Date(Date.UTC(2024, 5, 15, Math.floor(utcMinutes / 60), utcMinutes % 60));
       const sunPos = SolarCalculator.calculate(utcDate, latitude, longitude);
 
       const zenithRad = ((90 - Math.max(0, sunPos.elevation)) * Math.PI) / 180;
@@ -305,11 +305,37 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
       const centLat = target.centroidLatitude;
       const centLon = target.centroidLongitude;
 
-      // Setback: scale footprint by 0.7 from centroid
-      const scaledFp = fp.map((p: number[]) => [
-        centLat + (p[0] - centLat) * 0.7,
-        centLon + (p[1] - centLon) * 0.7,
-      ]);
+      // Setback: push vertices 1 meter towards centroid
+      const scaledFp = fp.map((p: number[]) => {
+        const dLat = centLat - p[0];
+        const dLng = centLon - p[1];
+        const distDeg = Math.sqrt(dLat * dLat + dLng * dLng);
+        const moveDeg = 1.0 / 111320; // approx 1 meter in degrees
+        if (distDeg < moveDeg * 2) return [centLat, centLon];
+        const ratio = moveDeg / distDeg;
+        return [
+          p[0] + dLat * ratio,
+          p[1] + dLng * ratio,
+        ];
+      });
+
+      // Find optimal orientation based on longest edge
+      let longestEdgeLength = 0;
+      let optimalAzimuth = orientationAzimuth;
+
+      for (let i = 0; i < fp.length; i++) {
+        const p1 = fp[i];
+        const p2 = fp[(i + 1) % fp.length];
+        const dist = haversineDistance(p1[0], p1[1], p2[0], p2[1]);
+        if (dist > longestEdgeLength) {
+          longestEdgeLength = dist;
+          const bearing = calculateBearing(p1[0], p1[1], p2[0], p2[1]);
+          const normal1 = (bearing + 90) % 360;
+          const normal2 = (bearing + 270) % 360;
+          // Choose the normal that faces closest to South (180)
+          optimalAzimuth = Math.abs(normal1 - 180) < Math.abs(normal2 - 180) ? normal1 : normal2;
+        }
+      }
 
       // Grid within bounding box
       const lats = scaledFp.map((p: number[]) => p[0]);
@@ -329,7 +355,7 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
               index: placed,
               latitudeOffset: lat - centLat,
               longitudeOffset: lng - centLon,
-              rotationDegrees: orientationAzimuth,
+              rotationDegrees: Math.round(optimalAzimuth),
               widthMeters: panelW,
               heightMeters: panelH,
               isOptimal: true,
@@ -375,7 +401,7 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
       coveragePercent: Math.round(coverage * 10) / 10,
       estimatedCapacityKw: Math.round(capacity * 10) / 10,
       panels,
-      placementStrategy: hasFootprint ? 'OSM footprint polygon with 15% setback' : 'Rectangular grid',
+      placementStrategy: hasFootprint ? 'OSM footprint polygon with 1m setback and edge alignment' : 'Rectangular grid',
       accuracy: AccuracyMetaBuilder.forPanelPlacement(hasFootprint, panels.length),
     };
   }
@@ -546,6 +572,31 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
         });
       } catch { /* skip */ }
 
+      let npv = undefined;
+      let dynamicRoi = undefined;
+
+      if (solarCalc) {
+        const netCost = solarCalc.financial.netCostRupees;
+        const discountRate = 0.08;
+        let cumulativeNpv = -netCost;
+        let cumulativeSavings = 0;
+
+        for (let year = 1; year <= t.warranty; year++) {
+          const yearDeg = Math.pow(1 - (t.deg / 100), year);
+          const yearTariff = solarCalc.financial.tariffPerKwh * Math.pow(1 + (solarCalc.financial.tariffEscalationPercent / 100), year - 1);
+          let yearSavings = solarCalc.annualGenerationKwh * yearDeg * yearTariff;
+
+          if (year === solarCalc.financial.inverterReplacementYear) {
+            yearSavings -= solarCalc.financial.inverterReplacementCostRupees;
+          }
+          cumulativeSavings += yearSavings;
+          cumulativeNpv += yearSavings / Math.pow(1 + discountRate, year);
+        }
+
+        npv = Math.round(cumulativeNpv);
+        dynamicRoi = netCost > 0 ? Math.round(((cumulativeSavings - netCost) / netCost) * 100) : 0;
+      }
+
       comparisons.push({
         panelTypeName: t.type,
         efficiencyPercent: t.eff,
@@ -556,6 +607,8 @@ export class PremiumAnalysisService implements IPremiumAnalysisService {
         temperatureCoefficient: t.tempCoef,
         bestFor: t.best,
         solarCalculation: solarCalc,
+        npvRupees: npv,
+        dynamicRoiPercent: dynamicRoi,
       });
     }
 

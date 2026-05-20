@@ -28,7 +28,14 @@ const DEGRADATION: Record<PanelType, number> = {
   [PanelType.ThinFilm]: 0.008,
 };
 
-const PERFORMANCE_RATIO = 0.78;
+const getPerformanceRatio = (panelType: PanelType) => {
+  switch (panelType) {
+    case PanelType.Monocrystalline: return 0.81;
+    case PanelType.Polycrystalline: return 0.78;
+    case PanelType.ThinFilm: return 0.75;
+    default: return 0.78;
+  }
+};
 const CO2_FACTOR = 0.82;
 const USABLE_ROOF_FRACTION = 0.70;
 const TARIFF_ESCALATION = 0.03;
@@ -77,7 +84,8 @@ export class SolarCalculationService implements ISolarCalculationService {
     for (let m = 0; m < 12; m++) {
       const ghi = monthlyGhi[MONTHS[m]] || 5.0;
       const days = DAYS_IN_MONTH[m];
-      const gen = ghi * tiltFactor * systemCapacity * PERFORMANCE_RATIO * days;
+      const pr = getPerformanceRatio(panelType);
+      const gen = ghi * tiltFactor * systemCapacity * pr * days;
       const savings = gen * tariffPerKwh;
       totalAnnualGen += gen;
       monthlyGeneration.push({
@@ -146,7 +154,7 @@ export class SolarCalculationService implements ISolarCalculationService {
 
   /**
    * Calculate annual POA/GHI ratio using isotropic sky model.
-   * Loops hours 5-19 IST on the 15th of each month.
+   * Loops hours 5-19 IST on the 5th, 15th, and 25th of each month.
    */
   static calculateAnnualPoaRatio(
     latitude: number, longitude: number,
@@ -155,43 +163,50 @@ export class SolarCalculationService implements ISolarCalculationService {
     const tiltRad = (tiltDeg * Math.PI) / 180;
     const azimuthRad = (azimuthDeg * Math.PI) / 180;
     const albedo = 0.2;
-    const diffuseFraction = 0.3;
 
     let totalPoa = 0;
     let totalGhi = 0;
 
+    const testDays = [5, 15, 25];
+
     for (let month = 0; month < 12; month++) {
-      for (let istHour = 5; istHour <= 19; istHour++) {
-        const utcHour = istHour - 5.5;
-        const utcDate = new Date(Date.UTC(2024, month, 15,
-          Math.floor(utcHour), (utcHour % 1) * 60));
+      for (const day of testDays) {
+        for (let istHour = 5; istHour <= 19; istHour++) {
+          const utcHour = istHour - 5.5;
+          const utcDate = new Date(Date.UTC(2024, month, day,
+            Math.floor(utcHour), (utcHour % 1) * 60));
 
-        const sunPos = SolarCalculator.calculate(utcDate, latitude, longitude);
-        if (sunPos.elevation <= 0) continue;
+          const sunPos = SolarCalculator.calculate(utcDate, latitude, longitude);
+          if (sunPos.elevation <= 0) continue;
 
-        const zenithRad = ((90 - sunPos.elevation) * Math.PI) / 180;
-        const cosZenith = Math.cos(zenithRad);
-        if (cosZenith <= 0) continue;
+          const zenithRad = ((90 - sunPos.elevation) * Math.PI) / 180;
+          const cosZenith = Math.cos(zenithRad);
+          if (cosZenith <= 0) continue;
 
-        const ghi = 1098 * cosZenith * Math.exp(-0.057 / cosZenith);
-        if (ghi <= 0) continue;
+          const ghi = 1098 * cosZenith * Math.exp(-0.057 / cosZenith);
+          if (ghi <= 0) continue;
 
-        const beam = ghi * (1 - diffuseFraction);
-        const diffuse = ghi * diffuseFraction;
+          // Dynamic diffuse fraction based on clearness index proxy (elevation)
+          const clearness = 0.5 + 0.4 * Math.sin((sunPos.elevation * Math.PI) / 180);
+          const diffuseFraction = Math.max(0.15, Math.min(0.8, 1 - clearness));
 
-        const sunAzRad = (sunPos.azimuth * Math.PI) / 180;
-        const sinElev = Math.sin((sunPos.elevation * Math.PI) / 180);
-        const cosElev = Math.cos((sunPos.elevation * Math.PI) / 180);
+          const beam = ghi * (1 - diffuseFraction);
+          const diffuse = ghi * diffuseFraction;
 
-        const cosAOI = sinElev * Math.cos(tiltRad) +
-          cosElev * Math.sin(tiltRad) * Math.cos(sunAzRad - azimuthRad);
+          const sunAzRad = (sunPos.azimuth * Math.PI) / 180;
+          const sinElev = Math.sin((sunPos.elevation * Math.PI) / 180);
+          const cosElev = Math.cos((sunPos.elevation * Math.PI) / 180);
 
-        const beamPoa = beam * Math.max(0, cosAOI) / cosZenith;
-        const diffusePoa = diffuse * (1 + Math.cos(tiltRad)) / 2;
-        const groundPoa = ghi * albedo * (1 - Math.cos(tiltRad)) / 2;
+          const cosAOI = sinElev * Math.cos(tiltRad) +
+            cosElev * Math.sin(tiltRad) * Math.cos(sunAzRad - azimuthRad);
 
-        totalPoa += beamPoa + diffusePoa + groundPoa;
-        totalGhi += ghi;
+          const beamPoa = beam * Math.max(0, cosAOI) / cosZenith;
+          const diffusePoa = diffuse * (1 + Math.cos(tiltRad)) / 2;
+          const groundPoa = ghi * albedo * (1 - Math.cos(tiltRad)) / 2;
+
+          totalPoa += beamPoa + diffusePoa + groundPoa;
+          totalGhi += ghi;
+        }
       }
     }
 
@@ -220,8 +235,11 @@ export class SolarCalculationService implements ISolarCalculationService {
     const ghi = 1098 * cosZenith * Math.exp(-0.057 / cosZenith);
     if (ghi <= 0) return 0;
 
-    const beam = ghi * 0.7;
-    const diffuse = ghi * 0.3;
+    const clearness = 0.5 + 0.4 * Math.sin((sunPos.elevation * Math.PI) / 180);
+    const diffuseFraction = Math.max(0.15, Math.min(0.8, 1 - clearness));
+
+    const beam = ghi * (1 - diffuseFraction);
+    const diffuse = ghi * diffuseFraction;
 
     const sunAzRad = (sunPos.azimuth * Math.PI) / 180;
     const sinElev = Math.sin((sunPos.elevation * Math.PI) / 180);

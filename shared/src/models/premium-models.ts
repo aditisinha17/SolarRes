@@ -146,6 +146,8 @@ export interface PanelComparisonData {
   temperatureCoefficient: number;
   bestFor: string;
   solarCalculation?: SolarCalculationResponse;
+  npvRupees?: number;
+  dynamicRoiPercent?: number;
 }
 
 // ── Building Energy (re-export from osm-building-models) ─

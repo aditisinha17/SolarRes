@@ -34,6 +34,24 @@
   }
   .suggestion-item:hover { background: rgba(255,107,53,0.15); }
 
+  /* UI Hidden State */
+  body.ui-hidden .solar-panel,
+  body.ui-hidden .polar-chart,
+  body.ui-hidden .daylength-chart,
+  body.ui-hidden .area-badge {
+    display: none !important;
+  }
+
+  #btnToggleUI {
+    position: absolute; bottom: 80px; right: 20px; z-index: 9999;
+    background: rgba(10,10,18,0.85); border: 1px solid rgba(255,107,53,0.5);
+    color: white; padding: 10px 16px; border-radius: 20px; cursor: pointer;
+    font-size: 13px; font-weight: 600; display: flex; align-items: center;
+    gap: 8px; backdrop-filter: blur(8px); box-shadow: 0 4px 15px rgba(0,0,0,0.4);
+    transition: all 0.3s ease;
+  }
+  #btnToggleUI:hover { background: #FF6B35; border-color: #FF6B35; }
+
   /* Solar Info Panel */
   .solar-panel {
     position: absolute; top: 12px; right: 12px; z-index: 1000;
@@ -143,6 +161,10 @@
 <body>
 <div id="cesiumContainer"></div>
 
+<button id="btnToggleUI" onclick="toggleUI()">
+  <span>📊</span> <span>Hide Charts</span>
+</button>
+
 <div class="search-box">
   <input id="searchInput" type="text" placeholder="🔍 Search location in India..." />
   <div class="suggestions" id="suggestions"></div>
@@ -217,6 +239,17 @@ let sunPathEntities = [], sunMarker = null;
 let currentLat = 20.5937, currentLng = 78.9629;
 let playing = false, playInterval = null;
 let sunPathVisible = false, shadowsEnabled = false, buildingsLoaded = false;
+
+// ── UI Control ─────────────────────────────────────────
+function toggleUI() {
+  document.body.classList.toggle('ui-hidden');
+  const btnText = document.querySelector('#btnToggleUI span:nth-child(2)');
+  if (document.body.classList.contains('ui-hidden')) {
+    btnText.textContent = 'Show Charts';
+  } else {
+    btnText.textContent = 'Hide Charts';
+  }
+}
 
 // ── Solar Position Algorithm (simplified NOAA) ─────────
 function solarPosition(lat, lng, date) {
@@ -349,6 +382,12 @@ function initViewer() {
     layers.remove(esriLayer);
     layers.addImageryProvider(osm);
   });
+
+  // High Quality Shadow Settings
+  viewer.shadowMap.maximumDistance = 800.0; // Focus shadow resolution right near the camera
+  viewer.shadowMap.size = 4096; // Ultra-high 4K shadow map
+  viewer.shadowMap.softShadows = false; // Disable blurring for crisp, clear edges
+  viewer.shadowMap.fadingEnabled = false;
 
   viewer.scene.globe.enableLighting = true;
   viewer.camera.flyTo({ destination: Cesium.Cartesian3.fromDegrees(78.9629, 20.5937, 5000000), duration: 2 });
@@ -749,43 +788,18 @@ function toggleShadows() {
 
 function toggleBuildings() {
   if (!buildingsLoaded) {
-    addSampleBuildings();
+    loadRealBuildings();
     buildingsLoaded = true;
   }
   document.getElementById('btnBuildings').classList.toggle('active', buildingsLoaded);
 }
 
-function addSampleBuildings() {
-  // Clear any previous building entities
-  const buildingEntities = [];
-  
-  // Create a realistic city block around the current location
-  // Target building (your roof) in bright red, neighbors in white/gray
-  const buildings = [
-    // Target building (center, highlighted)
-    { dlat: 0, dlng: 0, pts: [[-12,-8],[12,-8],[12,8],[-12,8]], h: 12, color: '#E53935', name: 'Your Building', opacity: 1.0 },
-    
-    // Immediate neighbors (close, casting shadows on target)
-    { dlat: 0.00025, dlng: 0.00015, pts: [[-10,-7],[10,-7],[10,7],[-10,7]], h: 40, color: '#ECEFF1', name: 'Tower A', opacity: 0.85 },
-    { dlat: -0.00020, dlng: 0.00030, pts: [[-8,-6],[8,-6],[8,6],[-8,6]], h: 30, color: '#CFD8DC', name: 'Block B', opacity: 0.85 },
-    { dlat: 0.00010, dlng: -0.00035, pts: [[-15,-8],[15,-8],[15,8],[-15,8]], h: 50, color: '#B0BEC5', name: 'Highrise C', opacity: 0.85 },
-    
-    // Medium distance buildings
-    { dlat: -0.00035, dlng: -0.00025, pts: [[-12,-6],[12,-6],[12,6],[-12,6]], h: 25, color: '#ECEFF1', name: '', opacity: 0.7 },
-    { dlat: 0.00040, dlng: -0.00010, pts: [[-7,-10],[7,-10],[7,10],[-7,10]], h: 35, color: '#CFD8DC', name: '', opacity: 0.7 },
-    { dlat: -0.00010, dlng: -0.00050, pts: [[-9,-7],[9,-7],[9,7],[-9,7]], h: 20, color: '#ECEFF1', name: '', opacity: 0.7 },
-    { dlat: 0.00030, dlng: 0.00040, pts: [[-6,-12],[6,-12],[6,12],[-6,12]], h: 28, color: '#B0BEC5', name: '', opacity: 0.7 },
-    
-    // Far buildings for context
-    { dlat: -0.00050, dlng: 0.00040, pts: [[-10,-8],[10,-8],[10,8],[-10,8]], h: 18, color: '#ECEFF1', name: '', opacity: 0.55 },
-    { dlat: 0.00055, dlng: 0.00035, pts: [[-8,-8],[8,-8],[8,8],[-8,8]], h: 22, color: '#CFD8DC', name: '', opacity: 0.55 },
-    { dlat: 0.00045, dlng: -0.00045, pts: [[-14,-6],[14,-6],[14,6],[-14,6]], h: 15, color: '#ECEFF1', name: '', opacity: 0.55 },
-    { dlat: -0.00045, dlng: -0.00050, pts: [[-10,-10],[10,-10],[10,10],[-10,10]], h: 32, color: '#B0BEC5', name: '', opacity: 0.55 },
-  ];
+async function loadRealBuildings() {
+  document.getElementById('btnBuildings').textContent = '⏳ Loading...';
   
   // Add a large ground plane for shadow visibility
-  const groundSize = 0.001; // ~110m
-  buildingEntities.push(viewer.entities.add({
+  const groundSize = 0.002;
+  entities.push(viewer.entities.add({
     polygon: {
       hierarchy: Cesium.Cartesian3.fromDegreesArray([
         currentLng - groundSize, currentLat - groundSize,
@@ -798,74 +812,82 @@ function addSampleBuildings() {
       shadows: Cesium.ShadowMode.RECEIVE_ONLY,
     },
   }));
-  
-  buildings.forEach((b) => {
-    const cosLat = Math.cos(currentLat * Math.PI / 180);
-    // Convert local meter offsets to lat/lng polygon
-    const coords = [];
-    b.pts.forEach(p => {
-      const mLng = p[0] / (111320 * cosLat);
-      const mLat = p[1] / 111320;
-      coords.push(currentLng + b.dlng + mLng);
-      coords.push(currentLat + b.dlat + mLat);
+
+  try {
+    // Fetch real buildings from OpenStreetMap using Overpass API
+    const radius = 250; // meters
+    const query = `
+      [out:json];
+      (
+        way["building"](around:${radius},${currentLat},${currentLng});
+      );
+      out body;
+      >;
+      out skel qt;
+    `;
+    
+    const res = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+    const data = await res.json();
+    
+    const nodes = {};
+    data.elements.forEach(e => {
+      if (e.type === 'node') nodes[e.id] = { lat: e.lat, lon: e.lon };
     });
     
-    const entity = viewer.entities.add({
-      polygon: {
-        hierarchy: Cesium.Cartesian3.fromDegreesArray(coords),
-        extrudedHeight: b.h,
-        material: Cesium.Color.fromCssColorString(b.color).withAlpha(b.opacity),
-        outline: true,
-        outlineColor: Cesium.Color.fromCssColorString(b.color === '#E53935' ? '#FF8A80' : '#78909C').withAlpha(0.8),
-        shadows: Cesium.ShadowMode.ENABLED,
-      },
-    });
-    buildingEntities.push(entity);
-    
-    // Add labels to named buildings
-    if (b.name) {
-      buildingEntities.push(viewer.entities.add({
-        position: Cesium.Cartesian3.fromDegrees(currentLng + b.dlng, currentLat + b.dlat, b.h + 3),
-        label: {
-          text: b.name + ' (' + b.h + 'm)',
-          font: 'bold 12px sans-serif',
-          fillColor: b.color === '#E53935' ? Cesium.Color.fromCssColorString('#FF8A80') : Cesium.Color.WHITE,
-          style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-          outlineWidth: 3, outlineColor: Cesium.Color.BLACK,
-          verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
-          disableDepthTestDistance: Number.POSITIVE_INFINITY,
-          scaleByDistance: new Cesium.NearFarScalar(100, 1.0, 2000, 0.3),
+    let buildingCount = 0;
+    data.elements.forEach(e => {
+      if (e.type === 'way' && e.tags && e.tags.building) {
+        const coords = [];
+        e.nodes.forEach(nid => {
+          if (nodes[nid]) {
+            coords.push(nodes[nid].lon);
+            coords.push(nodes[nid].lat);
+          }
+        });
+        
+        if (coords.length >= 6) {
+          // Estimate height from OSM tags
+          let height = 8; // default 8 meters
+          if (e.tags.height) {
+            height = parseFloat(e.tags.height.replace(/[^0-9.]/g, ''));
+          } else if (e.tags['building:levels']) {
+            height = parseFloat(e.tags['building:levels']) * 3.5;
+          }
+          
+          entities.push(viewer.entities.add({
+            polygon: {
+              hierarchy: Cesium.Cartesian3.fromDegreesArray(coords),
+              extrudedHeight: height,
+              material: Cesium.Color.fromCssColorString('#ECEFF1').withAlpha(0.9),
+              outline: true,
+              outlineColor: Cesium.Color.fromCssColorString('#CFD8DC'),
+              shadows: Cesium.ShadowMode.ENABLED,
+            }
+          }));
+          buildingCount++;
         }
-      }));
-    }
-  });
-  
-  entities.push(...buildingEntities);
-  
-  // Auto-enable shadows for the demo
-  if (!shadowsEnabled) {
-    shadowsEnabled = true;
-    viewer.shadows = true;
-    viewer.scene.globe.enableLighting = true;
-    document.getElementById('btnShadows').classList.add('active');
+      }
+    });
     
-    // Set time to 10 AM IST for dramatic shadows
-    document.getElementById('timeSlider').value = 600; // 10:00 IST
-    updateSolarInfo();
+    document.getElementById('btnBuildings').textContent = '🏠 Buildings';
+    
+    // Auto-enable shadows
+    if (!shadowsEnabled) {
+      shadowsEnabled = true;
+      viewer.shadows = true;
+      viewer.scene.globe.enableLighting = true;
+      document.getElementById('btnShadows').classList.add('active');
+      updateSolarInfo();
+    }
+    
+  } catch (error) {
+    console.error('Failed to load real OSM buildings:', error);
+    document.getElementById('btnBuildings').textContent = '⚠️ Error';
+    setTimeout(() => document.getElementById('btnBuildings').textContent = '🏠 Buildings', 3000);
   }
-  
-  // Fly to a good viewing angle (tilted, from south looking north)
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(currentLng - 0.0003, currentLat - 0.0008, 200),
-    orientation: {
-      heading: Cesium.Math.toRadians(15),
-      pitch: Cesium.Math.toRadians(-35),
-      roll: 0,
-    },
-    duration: 2,
-  });
-  viewer.scene.requestRender();
 }
+  
+
 
 // ── Playback ───────────────────────────────────────────
 function togglePlay() {
@@ -904,11 +926,21 @@ searchInput.addEventListener('input', () => {
   searchTimeout = setTimeout(() => searchAddress(q), 300);
 });
 
+searchInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    const firstItem = suggestionsEl.querySelector('.suggestion-item');
+    if (firstItem) {
+      firstItem.click();
+      searchInput.blur();
+    }
+  }
+});
+
 async function searchAddress(query) {
   try {
     const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in`,
-      { headers: { 'User-Agent': 'SolarRes/1.0' } }
+      `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5&countrycodes=in&email=solarres@example.com`
     );
     const results = await res.json();
     suggestionsEl.innerHTML = '';
@@ -1025,12 +1057,17 @@ function placePanelGrid(lat, lng, count, w, h, tilt, azimuth, spacing, height) {
   const latStep = (h + spacing) / 111320;
   const lngStep = (w + spacing) / (111320 * cosLat);
   let placed = 0; const rows = Math.ceil(count / cols);
+  
+  // Center the grid around the target lat/lng
+  const startLat = lat - (rows * latStep) / 2 + latStep / 2;
+  const startLng = lng - (cols * lngStep) / 2 + lngStep / 2;
+
   for (let r = 0; r < rows && placed < count; r++) {
     for (let c = 0; c < cols && placed < count; c++) {
       solarPanels.push(viewer.entities.add({
         id: 'panel_' + placed,
-        position: Cesium.Cartesian3.fromDegrees(lng + c * lngStep, lat + r * latStep, (height || 3) + 0.1),
-        box: { dimensions: new Cesium.Cartesian3(w, h, 0.05), material: Cesium.Color.fromCssColorString('#1a6dd4').withAlpha(0.8), outline: true, outlineColor: Cesium.Color.fromCssColorString('#4ECDC4'), shadows: Cesium.ShadowMode.ENABLED },
+        position: Cesium.Cartesian3.fromDegrees(startLng + c * lngStep, startLat + r * latStep, (height || 3) + 0.15),
+        box: { dimensions: new Cesium.Cartesian3(w, h, 0.05), material: Cesium.Color.fromCssColorString('#1a6dd4').withAlpha(0.95), outline: true, outlineColor: Cesium.Color.fromCssColorString('#81D4FA'), shadows: Cesium.ShadowMode.ENABLED },
       }));
       placed++;
     }
